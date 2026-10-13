@@ -1,0 +1,24 @@
+# Only package files, tsconfig, src/ and assets/ are needed to build the image.
+.git
+.gitignore
+node_modules
+dist
+coverage
+test
+scripts
+docs
+*.log
+.DS_Store
+.editorconfig
+.prettierrc
+.prettierignore
+eslint.config.js
+vitest.config.ts
+Dockerfile
+.dockerignore
+docker-compose.yml
+README.md
+
+# Secrets never enter the build context.
+.env
+.env.*
