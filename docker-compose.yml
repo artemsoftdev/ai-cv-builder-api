@@ -28,7 +28,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - '127.0.0.1:4000:4000'
+      - '127.0.0.1:${PORT:?set PORT in .env}:${PORT}'
     # Worker gets 25 s to hand running jobs back before SIGKILL.
     stop_grace_period: 40s
     restart: unless-stopped
