@@ -152,6 +152,16 @@ describe('applySectionRewrite', () => {
               relevance: 10,
               bullets: [],
             },
+            // The existing entry repeated by the model is not added twice.
+            {
+              company: 'acme payments',
+              title: 'Software Engineer',
+              location: '',
+              startDate: '',
+              endDate: '',
+              relevance: 90,
+              bullets: [],
+            },
           ],
         },
       },

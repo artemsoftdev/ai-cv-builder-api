@@ -17,8 +17,11 @@ const PHONE_RE = /\+?\d[\d ().-]{6,}\d/;
 const URL_SOURCE = String.raw`\b(?:https?://|www\.)[^\s<>()]+|\b(?:github|gitlab|linkedin)\.com/[^\s<>()]+`;
 const URL_RE = new RegExp(URL_SOURCE, 'gi');
 const HAS_URL_RE = new RegExp(URL_SOURCE, 'i');
-const DATE_RANGE_RE =
-  /((?:[A-Za-z]{3,9}\.? )?(?:19|20)\d{2})\s*(?:-|–|—|to)\s*((?:[A-Za-z]{3,9}\.? )?(?:19|20)\d{2}|present|now|current)/i;
+const MONTH = String.raw`(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?`;
+const DATE_RANGE_RE = new RegExp(
+  String.raw`((?:${MONTH} )?(?:19|20)\d{2})\s*(?:-|–|—|to)\s*((?:${MONTH} )?(?:19|20)\d{2}|present|now|current)`,
+  'i',
+);
 const ROLE_AT_COMPANY_RE = /^(.{2,80}?)\s+(?:at|@)\s+(.{2,80}?)(?:\s*[,(|]\s*(.*?)\)?)?$/i;
 // \b is ASCII-only in JS, so letter boundaries are spelled out for the Cyrillic words.
 const EDUCATION_RE =

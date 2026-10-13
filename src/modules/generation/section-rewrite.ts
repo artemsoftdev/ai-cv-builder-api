@@ -202,11 +202,14 @@ export function applySectionRewrite(
           },
         };
       }
+      const known = new Set(content.experience.map((e) => entryKey(e.company, e.title)));
       const added = rewrite.data.items
         .map((draft) =>
           sanitizeExperience(draft, evidence, { itemId: newId(), bulletId: () => newId() }),
         )
         .filter((item): item is ExperienceItem => item !== null)
+        // Asked for new entries only, the model may still repeat existing ones.
+        .filter((item) => !known.has(entryKey(item.company, item.title)))
         .slice(0, L.experienceItems - content.experience.length);
       return {
         content: toValidContent({ ...content, experience: [...content.experience, ...added] }),
@@ -231,9 +234,11 @@ export function applySectionRewrite(
           scope: { targetIds: new Set([existing.id]), removedFields: [] },
         };
       }
+      const known = new Set(content.education.map((e) => entryKey(e.institution, e.degree)));
       const added = rewrite.data.items
         .map((draft) => sanitizeEducation(draft, newId()))
         .filter((item): item is EducationItem => item !== null)
+        .filter((item) => !known.has(entryKey(item.institution, item.degree)))
         .slice(0, L.educationItems - content.education.length);
       return {
         content: toValidContent({ ...content, education: [...content.education, ...added] }),
@@ -260,6 +265,9 @@ export function applySectionRewrite(
     }
   }
 }
+
+/** Identity of an entry for duplicate detection: its two names, case-insensitively. */
+const entryKey = (...names: string[]) => JSON.stringify(names.map((n) => n.toLowerCase()));
 
 const emptyRewrite = () =>
   new PermanentError('LLM_INVALID_OUTPUT', 'The rewrite returned no usable entry');
