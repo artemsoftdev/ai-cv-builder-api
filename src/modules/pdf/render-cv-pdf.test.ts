@@ -28,7 +28,8 @@ function longCyrillicCv(): CvContent {
   return content;
 }
 
-describe('renderCvPdf', () => {
+// Rendering is CPU-bound and runs alongside the other test files.
+describe('renderCvPdf', { timeout: 30_000 }, () => {
   it('renders A4 pages with extractable Latin and Cyrillic text', async () => {
     const content = longCyrillicCv();
     const pdf = await renderCvPdf(content, { title: 'Резюме Ивана' });
