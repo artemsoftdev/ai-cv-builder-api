@@ -10,8 +10,7 @@ export function createLlmClient(config: AppConfig['llm'], logger: Logger): LlmCl
     return new FakeLlmClient({ delayMs: config.fakeDelayMs });
   }
   if (!config.apiKey) {
-    // Not fatal: the API stays usable (and health reports missing_key); generation jobs fail
-    // with LLM_NOT_CONFIGURED until the key is set.
+    // Not fatal: health reports missing_key and jobs fail with LLM_NOT_CONFIGURED.
     logger.warn(
       'ANTHROPIC_API_KEY is not set: CV generation will fail with LLM_NOT_CONFIGURED. ' +
         'Set it in .env, or use LLM_PROVIDER=fake for a keyless demo.',

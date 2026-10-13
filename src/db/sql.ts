@@ -5,11 +5,7 @@ export interface SqlResult<Row> {
   affected: number;
 }
 
-/**
- * Runs a raw statement and returns its rows and affected-row count in one shape, whatever the
- * command. (`manager.query()` returns `[rows, count]` for UPDATE/DELETE but plain rows for
- * SELECT/INSERT, which is easy to get wrong.) Uses the manager's transaction when it has one.
- */
+/** One result shape for every command (`manager.query()` returns different ones). */
 export async function runSql<Row = Record<string, unknown>>(
   manager: EntityManager,
   sql: string,

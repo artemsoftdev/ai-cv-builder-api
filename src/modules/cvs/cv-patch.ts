@@ -22,17 +22,13 @@ export type CvChanges = Partial<{
   userFacts: string[];
 }>;
 
-/**
- * Pure merge rules for PATCH /api/cvs/:id. Returns only the fields that actually change, or
- * null when the request is a no-op (then the version must not be bumped).
- */
+/** Only the fields that change, or null for a no-op (which must not bump the version). */
 export function planCvPatch(current: CvEditableState, input: CvPatchInput): CvChanges | null {
   const changes: CvChanges = {};
 
   if (input.title !== undefined && input.title !== current.title) {
     changes.title = input.title;
   }
-  // Deep comparison: autosave may resend identical content; that must not create a version.
   if (input.content !== undefined && !isDeepStrictEqual(input.content, current.content)) {
     changes.content = input.content;
   }
@@ -44,7 +40,6 @@ export function planCvPatch(current: CvEditableState, input: CvPatchInput): CvCh
       after,
       new Set(input.dismissFlagIds ?? []),
     );
-    // A quote "found in your source" must not stay attached to text the user rewrote.
     const evidence = pruneEvidence(current.review.evidence, current.content, after);
     const evidenceChanged =
       Object.keys(evidence).length !== Object.keys(current.review.evidence).length;

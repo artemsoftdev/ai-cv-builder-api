@@ -192,7 +192,6 @@ describe('ownership isolation', () => {
     }
     expect((await bob.agent.get('/api/cvs')).body).toEqual({ items: [] });
 
-    // Nothing changed for the owner.
     const dto = await getCv(alice.agent, cv.id);
     expect(dto.title).toBe('Senior Backend Engineer CV');
     expect(dto.version).toBe(1);
@@ -335,7 +334,6 @@ describe('PATCH /api/cvs/:id', () => {
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('CV_NOT_READY');
 
-    // The title can still be changed.
     const titled = await alice.agent
       .patch(`/api/cvs/${cv.id}`)
       .send({ version: 1, title: 'Retry later' });
@@ -471,7 +469,6 @@ describe('database invariants', () => {
     await expect(createJob(ctx.dataSource, cv.id, { status: 'queued' })).rejects.toThrow(
       /jobs_one_active_per_cv_uidx/,
     );
-    // Finished jobs do not count.
     await createJob(ctx.dataSource, cv.id, { status: 'failed' });
   });
 

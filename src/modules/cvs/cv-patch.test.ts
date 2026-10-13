@@ -25,7 +25,6 @@ describe('planCvPatch', () => {
     const changes = planCvPatch(current(), { content });
     expect(changes?.content).toEqual(content);
     expect(changes?.review?.flags.map((flag) => flag.id)).toEqual(['flag-bullet', 'flag-exp']);
-    // The rest of the review is preserved.
     expect(changes?.review?.removed).toEqual(sampleReview().removed);
     expect(changes?.review?.evidence).toEqual(sampleReview().evidence);
   });

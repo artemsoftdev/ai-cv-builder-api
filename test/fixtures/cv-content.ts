@@ -1,7 +1,6 @@
 import type { CvContent } from '../../src/modules/cvs/cv-content.schema.js';
 import type { CvReview } from '../../src/modules/cvs/cv.types.js';
 
-/** A small but complete, valid CV. Returns a fresh object on every call. */
 export function sampleContent(): CvContent {
   return {
     contact: {
@@ -42,7 +41,6 @@ export function sampleContent(): CvContent {
   };
 }
 
-/** Review with one flag per kind of target, matching sampleContent(). */
 export function sampleReview(): CvReview {
   return {
     flags: [

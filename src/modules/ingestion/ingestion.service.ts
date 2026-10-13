@@ -24,11 +24,7 @@ type PreparedSource = Pick<NewCv, 'sourceType' | 'sourceFilename' | 'sourceText'
 
 const formatCount = (n: number) => n.toLocaleString('en');
 
-/**
- * Validates and reads the source synchronously (so a bad upload fails with a 4xx right away),
- * then creates the CV and its generate_cv job in one transaction. The slow part runs in the
- * worker.
- */
+/** The source is read during the request, so a bad upload fails with a 4xx right away. */
 export class IngestionService {
   constructor(
     private readonly deps: {
@@ -105,12 +101,12 @@ export class IngestionService {
 
     const text = normalizeSourceText(extracted.text);
     if (countNonWhitespace(text) < SOURCE_LIMITS.scannedThreshold) {
-      // No usable text layer (a scan): keep the PDF; the job has Claude transcribe it.
+      // A scan: the job has Claude transcribe it.
       return { sourceType: 'pdf', sourceFilename, sourceText: null, sourcePdf: file.buffer };
     }
     const sourceText = withLinks(text, extracted.links);
     if (sourceText.length > SOURCE_LIMITS.extractedMax) {
-      // Rejected rather than truncated: a cut-off CV would silently lose experience.
+      // Not truncated: a cut-off CV would silently lose experience.
       throw new AppError(
         'UNPROCESSABLE_SOURCE',
         `This PDF contains too much text: at most ${formatCount(SOURCE_LIMITS.extractedMax)} characters are supported.`,
@@ -120,7 +116,7 @@ export class IngestionService {
   }
 }
 
-/** Appends link targets that are not visible in the text (e.g. a "GitHub" label's URL). */
+/** Link targets hidden behind labels such as "GitHub". */
 function withLinks(text: string, links: readonly string[]): string {
   const lower = text.toLowerCase();
   const hidden = links.filter((link) => !lower.includes(link.toLowerCase()));

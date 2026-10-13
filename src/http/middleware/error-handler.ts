@@ -1,16 +1,10 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { AppError, notFound, validationError } from '../errors.js';
 
-/** Unknown route -> 404 NOT_FOUND in the contract shape. */
 export const notFoundHandler: RequestHandler = (_req, _res, next) => {
   next(notFound('Route'));
 };
 
-/**
- * Central error handler: AppErrors become their contract response; errors raised by Express'
- * body parser are mapped to client errors; everything else is logged and becomes a generic
- * 500 INTERNAL, so stack traces, SQL and driver messages never reach the client.
- */
 export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) => {
   if (res.headersSent) {
     next(err);
@@ -29,19 +23,17 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) 
 
 function toAppError(err: unknown): AppError | null {
   if (err instanceof AppError) return err;
-  // The router decodes path params and throws a URIError on bad escapes ("/api/cvs/%E0%A4").
+  // Bad escapes in path params ("/api/cvs/%E0%A4").
   if (err instanceof URIError) {
     return validationError([{ path: '', message: 'Malformed URL encoding' }]);
   }
   if (!isHttpError(err)) return null;
-  // body-parser errors carry a `type`; see https://github.com/expressjs/body-parser#errors
   switch (err.type) {
     case 'entity.parse.failed':
       return validationError([{ path: '', message: 'Malformed JSON body' }]);
     case 'entity.too.large':
       return new AppError('FILE_TOO_LARGE', 'Request body is too large');
     default:
-      // Other 4xx raised by Express internals (bad charset, aborted request...).
       return err.status >= 400 && err.status < 500
         ? validationError([{ path: '', message: 'Malformed request' }])
         : null;

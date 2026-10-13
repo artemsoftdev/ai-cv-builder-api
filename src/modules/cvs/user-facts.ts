@@ -29,7 +29,6 @@ function changedFields<T extends { id: string }, K extends keyof T>(
   }
 }
 
-/** Values that are new or changed in `after`: the user typed them. */
 export function editedValues(before: CvContent, after: CvContent): string[] {
   const facts: string[] = [];
   const add = (value: string, previous: string | undefined) => {
@@ -53,7 +52,6 @@ export function editedValues(before: CvContent, after: CvContent): string[] {
   return facts;
 }
 
-/** The text a flag target shows: dismissing its flag confirms it. */
 export function targetTexts(content: CvContent, itemId: string): string[] {
   if (itemId === SUMMARY_TARGET_ID) return [content.summary];
   if (itemId === HEADLINE_TARGET_ID) return [content.contact.headline];
@@ -66,7 +64,7 @@ export function targetTexts(content: CvContent, itemId: string): string[] {
   return education ? EDUCATION_FIELDS.map((field) => education[field]) : [];
 }
 
-/** What a PATCH adds to the user's confirmed facts: edited values and dismissed flag targets. */
+/** Edited values and the targets of dismissed flags. */
 export function confirmedFacts(current: CvEditableState, input: CvPatchInput): string[] {
   if (!current.content) return [];
   const content = current.content;
@@ -78,7 +76,6 @@ export function confirmedFacts(current: CvEditableState, input: CvPatchInput): s
   return [...edited, ...confirmed].filter((text) => text.trim() !== '');
 }
 
-/** Appends `added`, keeping each text once and only the newest facts within the limits. */
 export function mergeUserFacts(existing: readonly string[], added: readonly string[]): string[] {
   const newestFirst = [...new Set([...added].reverse().concat([...existing].reverse()))];
   const kept: string[] = [];

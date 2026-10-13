@@ -1,5 +1,4 @@
-// Runs in a worker thread so the parent can terminate a pathological parse; imports only packages
-// (and erased types) because Node loads this file directly in dev and tests.
+// Only packages and erased types: Node loads this file directly in dev and tests.
 import { parentPort, workerData } from 'node:worker_threads';
 import { extractLinks, extractText, getDocumentProxy } from 'unpdf';
 import type { PdfWorkerInput, PdfWorkerResult } from './pdf-text.js';

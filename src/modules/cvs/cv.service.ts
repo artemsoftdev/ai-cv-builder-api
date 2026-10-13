@@ -31,11 +31,7 @@ export class CvService {
     return rows.map(toCvSummaryDto);
   }
 
-  /**
-   * Reads the CV, its questions and `busy` from one snapshot. Without it a job could commit
-   * between the reads, and the client would see `busy: false` next to stale content and
-   * stop polling.
-   */
+  /** One snapshot: otherwise a poll could see busy: false next to stale content and stop. */
   async get(userId: string, cvId: string): Promise<CvDto> {
     return this.dataSource.transaction('REPEATABLE READ', (manager) =>
       this.getWith(manager, userId, cvId),
@@ -63,7 +59,6 @@ export class CvService {
         changes.userFacts = mergeUserFacts(await repo.loadUserFacts(userId, cvId), facts);
       }
       const newVersion = await repo.updateIfCurrent(userId, cvId, cv.version, changes);
-      // Lost a race since the checks above (concurrent edit, new job or deletion).
       if (newVersion === null) await this.explainLostUpdate(repo, userId, cvId);
     }
     return this.get(userId, cvId);

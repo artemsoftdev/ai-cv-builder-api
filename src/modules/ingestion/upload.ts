@@ -6,11 +6,7 @@ import { SOURCE_LIMITS } from './source-text.js';
 
 const MAX_FILENAME_CHARS = 200;
 
-/**
- * multipart/form-data parser for POST /api/cvs: one PDF in memory (it is parsed right away and
- * at most 5 MB), a couple of small text fields, nothing else. Limits are enforced while
- * streaming, so an oversized upload is cut off rather than buffered.
- */
+// Limits apply while streaming, so an oversized upload is cut off rather than buffered.
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -18,7 +14,7 @@ const upload = multer({
     files: 1,
     fields: 4,
     parts: 5,
-    // Pasted text: up to 20 000 characters of up to 4 UTF-8 bytes, plus slack for whitespace.
+    // 20 000 characters of up to 4 UTF-8 bytes, plus slack for whitespace.
     fieldSize: 128 * 1024,
     fieldNameSize: 64,
     fieldNestingDepth: 0,
@@ -38,7 +34,6 @@ export const parseCvUpload: RequestHandler = (req, res, next) => {
   });
 };
 
-/** Multer/busboy failures are always the client's: map them to contract errors. */
 function toUploadError(err: unknown): AppError {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
@@ -49,11 +44,10 @@ function toUploadError(err: unknown): AppError {
     }
     return validationError([{ path: err.field ?? '', message: err.message }]);
   }
-  // Malformed multipart body, aborted upload...
   return validationError([{ path: '', message: 'Malformed multipart body' }]);
 }
 
-/** The client's file name, reduced to a printable base name (it is shown back in the UI). */
+/** Shown back in the UI: a printable base name only. */
 export function safeFilename(original: string | undefined): string | null {
   const base = (original ?? '').split(/[\\/]/).pop() ?? '';
   const clean = Array.from(sanitizeLine(base.normalize('NFC')))

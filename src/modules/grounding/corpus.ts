@@ -12,7 +12,6 @@ import { extractNumbers } from './numbers.js';
 
 const MIN_QUOTE_CHARS = 12;
 const MIN_QUOTE_WORDS = 2;
-/** Fragments of a quote shortened with "..." must occur in order, this close to each other. */
 const MAX_FRAGMENT_GAP = 300;
 const MAX_COMPACT_WINDOW = 3;
 export const MIN_PHONE_DIGITS = 7;
@@ -46,15 +45,11 @@ function boundedRe(phrase: string, flags = 'u'): RegExp {
   return new RegExp(`${head}${escapeRegExp(phrase)}${tail}`, flags);
 }
 
-/** "+49 030 1234" -> "49301234": digits without trunk/international zeros. */
 export function phoneDigits(phone: string): string {
   return phone.replace(/\D/g, '').replace(/^0+/, '');
 }
 
-/**
- * Everything a generated claim may be grounded in: the source, the user's answers and what the
- * user typed or confirmed in the editor. Questions the model asked are not part of it.
- */
+/** Source, answers and what the user typed or confirmed; never the model's questions. */
 export class Corpus {
   readonly text: string;
   private readonly words: Set<string>;
@@ -95,10 +90,7 @@ export class Corpus {
     }
   }
 
-  /**
-   * True if the quote occurs on word boundaries. A quote shortened with "..." needs every
-   * fragment, in order and close together. Quotes under two words / 12 characters prove nothing.
-   */
+  /** Word-bounded; "..." fragments must appear in order and close together. */
   hasQuote(quote: string): boolean {
     const fragments = normalizeText(quote)
       .split('...')
@@ -122,7 +114,6 @@ export class Corpus {
     return false;
   }
 
-  /** Text the user typed or confirmed in the editor, verbatim. */
   isConfirmed(text: string): boolean {
     return this.confirmed.has(normalizePhrase(text));
   }
@@ -131,12 +122,10 @@ export class Corpus {
     return this.numbers.has(canonical);
   }
 
-  /** `word` must be a lowercase letter/digit run (see wordsOf). */
   hasWord(word: string): boolean {
     return this.words.has(word);
   }
 
-  /** hasWord, tolerating inflection ("Москве" for "Москва") and English plurals. */
   hasWordLike(word: string): boolean {
     if (this.words.has(word)) return true;
     if (/^[a-z0-9]+$/.test(word)) {
@@ -148,16 +137,12 @@ export class Corpus {
     return (this.inflectedWords.get(word.slice(0, 3)) ?? []).some((other) => sameWord(word, other));
   }
 
-  /** Any corpus word starting with `stem` ("руковод" for "руководил"). */
   hasWordWithStem(stem: string): boolean {
     for (const word of this.words) if (word.startsWith(stem)) return true;
     return false;
   }
 
-  /**
-   * A whole phrase ("Go" in "Go and Rust", not in "Google" or "go-to"), its compact form
-   * ("NodeJS" for "Node.js") or a known alias ("Postgres" for "PostgreSQL").
-   */
+  /** Whole phrase, compact form ("NodeJS" for "Node.js") or a known alias. */
   hasTerm(term: string): boolean {
     const phrase = normalizePhrase(term);
     if (!phrase) return false;
@@ -172,7 +157,7 @@ export class Corpus {
     return this.emails.has(normalizePhrase(email).replace(/^mailto:/, ''));
   }
 
-  /** Same number if one digit string ends with the other (country code, trunk zero). */
+  /** One digit string may end with the other (country code, trunk zero). */
   hasPhone(phone: string): boolean {
     const digits = phoneDigits(phone);
     if (digits.length < MIN_PHONE_DIGITS) return false;

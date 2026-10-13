@@ -214,7 +214,6 @@ describe('rate limiting of signup + login', () => {
     expect(res.body.error.code).toBe('RATE_LIMITED');
     expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
 
-    // Other routes are not limited.
     expect((await agent.get('/api/auth/me')).status).toBe(200);
   });
 });
@@ -254,11 +253,9 @@ describe('per-account rate limiting', () => {
     const blocked = await attempt('3.3.3.3', DEFAULT_PASSWORD);
     expect(blocked.status).toBe(429);
     expect(blocked.body.error.code).toBe('RATE_LIMITED');
-    // The same address differently cased or padded is the same account.
     expect(
       (await attempt('4.4.4.4', DEFAULT_PASSWORD, ` ${user.email.toUpperCase()}`)).status,
     ).toBe(429);
-    // Other accounts are unaffected.
     expect((await attempt('3.3.3.3', 'wrong', uniqueEmail())).status).toBe(401);
   });
 

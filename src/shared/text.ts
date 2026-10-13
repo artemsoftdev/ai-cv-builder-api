@@ -9,10 +9,8 @@ const STRIP_RE = new RegExp(
   ].join(''),
   'gu',
 );
-// CRLF, lone CR, and the Unicode line/paragraph separators.
 const LINE_BREAK_RE = new RegExp('\\r\\n?|\\u2028|\\u2029', 'g');
 
-/** Single-line text: every line break or tab becomes a space, then space runs collapse. */
 export function sanitizeLine(value: string): string {
   return value
     .replace(STRIP_RE, '')
@@ -22,7 +20,6 @@ export function sanitizeLine(value: string): string {
     .trim();
 }
 
-/** Multi-line text: keeps `\n` (normalising CRLF), drops other control characters. */
 export function sanitizeMultiline(value: string): string {
   return value
     .replace(STRIP_RE, '')

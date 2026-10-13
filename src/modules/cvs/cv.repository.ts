@@ -41,14 +41,7 @@ export interface NewCv {
   errorMessage?: string | null;
 }
 
-/**
- * User-facing data access for CVs. Every method takes the owner's id and filters by it, so a
- * CV of another user behaves exactly like a missing one (callers answer 404, never 403).
- * Construct it with `dataSource.manager` or with a transaction's manager.
- *
- * Background jobs act on behalf of the system, not a user; they should use their own
- * repository instead of this one.
- */
+/** Every query filters by owner, so another user's CV looks missing (404, never 403). */
 export class CvRepository {
   constructor(private readonly manager: EntityManager) {}
 
@@ -56,7 +49,6 @@ export class CvRepository {
     return this.manager.save(this.manager.create(CvEntity, input));
   }
 
-  /** Newest first, with derived `busy` and `openQuestions`; never loads source/content. */
   async listSummaries(userId: string): Promise<CvSummaryRow[]> {
     return this.manager.query<CvSummaryRow[]>(
       `SELECT c.id,
@@ -80,12 +72,10 @@ export class CvRepository {
     );
   }
 
-  /** The CV without its source text/PDF (those columns are `select: false`). */
   async findOwned(userId: string, cvId: string): Promise<CvEntity | null> {
     return this.manager.findOneBy(CvEntity, { id: cvId, userId });
   }
 
-  /** True while a job for this CV is queued or running. */
   async findSource(
     userId: string,
     cvId: string,
@@ -137,11 +127,7 @@ export class CvRepository {
     return this.manager.findOneBy(CvQuestionEntity, { id: questionId, cvId, cv: { userId } });
   }
 
-  /**
-   * Applies `changes` and bumps the version only if the CV still has `expectedVersion` and no
-   * live job. The busy check is part of the same statement, so a job enqueued after the
-   * caller's checks still wins. Returns the new version, or null if nothing was updated.
-   */
+  /** Version and busy check in one statement, so a job enqueued after the caller's checks wins. */
   async updateIfCurrent(
     userId: string,
     cvId: string,
@@ -169,7 +155,6 @@ export class CvRepository {
     return rows[0]?.version ?? null;
   }
 
-  /** Moves a question to `to` only if it is currently in one of `from` (compare-and-set). */
   async transitionQuestion(
     userId: string,
     cvId: string,
@@ -194,10 +179,7 @@ export class CvRepository {
     return result.affected === 1;
   }
 
-  /**
-   * Run inside a transaction. Jobs go first: a completing job locks its job row and then the CV
-   * row, so deleting the CV first (cascading to jobs) would take them in the opposite order.
-   */
+  /** In a transaction; jobs first, the lock order of a completing job (else deadlock). */
   async deleteOwned(userId: string, cvId: string): Promise<boolean> {
     await runSql(
       this.manager,

@@ -6,7 +6,6 @@ import { renderCvPdf } from './render-cv-pdf.js';
 
 const A4 = { width: 595.28, height: 841.89 };
 
-/** A Russian CV long enough to need a second page. */
 function longCyrillicCv(): CvContent {
   const content = sampleContent();
   content.contact.fullName = 'Иван Петров';
@@ -28,7 +27,7 @@ function longCyrillicCv(): CvContent {
   return content;
 }
 
-// Rendering is CPU-bound and runs alongside the other test files.
+// CPU-bound, and runs alongside the other test files.
 describe('renderCvPdf', { timeout: 30_000 }, () => {
   it('renders A4 pages with extractable Latin and Cyrillic text', async () => {
     const content = longCyrillicCv();
@@ -49,7 +48,6 @@ describe('renderCvPdf', { timeout: 30_000 }, () => {
     expect(firstPage).toContain('jane@example.com');
     expect(firstPage).toContain('Разработчик — ООО «Ромашка 0» 2015 – 2016');
     expect(firstPage).toContain(content.experience[0]!.bullets[0]!.text);
-    // The content continues on the following page(s) rather than being cut off.
     expect(doc.pageTexts.at(-1)).toContain(content.skills[0]!.items.join(', '));
     expect(doc.text).toContain(content.experience[4]!.bullets[5]!.text);
   });
@@ -100,8 +98,7 @@ describe('renderCvPdf', { timeout: 30_000 }, () => {
   });
 
   it('shares no font state between documents', async () => {
-    // Regression: with one font instance per process, subsetting a Cyrillic CV (whose "М"
-    // is a composite of Latin "M") broke "M" and "P" in every later document.
+    // Regression: a shared font instance broke "M" in documents rendered after a Cyrillic one.
     const cyrillic = sampleContent();
     cyrillic.contact.location = 'Москва, Россия';
     cyrillic.experience[0]!.company = 'ООО «Ромашка»';
@@ -112,8 +109,7 @@ describe('renderCvPdf', { timeout: 30_000 }, () => {
   });
 
   it('renders documents of many pages', async () => {
-    // react-pdf's page-number `render` prop crashed at about ten pages; the template must
-    // survive the long documents the content limits allow.
+    // react-pdf's page-number `render` prop crashed at about ten pages.
     const content = sampleContent();
     content.experience = Array.from({ length: 12 }, (_, i) => ({
       ...content.experience[0]!,

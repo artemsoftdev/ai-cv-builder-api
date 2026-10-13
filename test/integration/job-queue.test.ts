@@ -22,7 +22,6 @@ beforeEach(async () => {
   userId = (await signedInUser(ctx.app)).user.id;
 });
 
-/** A CV waiting for generation, with its queued job. */
 async function queuedGeneration() {
   const cv = await createCv(ctx.dataSource, userId, {
     status: 'generating',
@@ -38,7 +37,6 @@ async function queuedGeneration() {
 const reloadJob = (id: string) => ctx.dataSource.getRepository(JobEntity).findOneByOrFail({ id });
 const reloadCv = (id: string) => ctx.dataSource.getRepository(CvEntity).findOneByOrFail({ id });
 
-/** Handlers whose generate_cv runs `work` and completes; apply_answer is never expected. */
 function recordingHandlers(work: (job: ClaimedJob) => void | Promise<void>): JobHandlers {
   return {
     generate_cv: {
@@ -130,7 +128,6 @@ describe('failures', () => {
     expect(await reloadJob(job.id)).toMatchObject({ status: 'failed', attempts: 1 });
     const failed = await reloadCv(cv.id);
     expect(failed).toMatchObject({ status: 'failed', errorCode: 'LLM_REFUSED' });
-    // The user sees the friendly text, never the internal description.
     expect(failed.errorMessage).toBe('The AI declined to process this source.');
   });
 

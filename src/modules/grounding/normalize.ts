@@ -1,12 +1,11 @@
 // Both sides of every comparison go through these, so typography never decides support.
-// Patterns are built from code points to keep the file ASCII.
 
 const cls = (codePoints: string) => new RegExp(`[${codePoints}]`, 'gu');
 
 const INVISIBLE_RE = cls(
   '\\u00AD\\u061C\\u200B-\\u200F\\u2060-\\u2064\\uFEFF\\u{E0000}-\\u{E007F}',
 );
-// Private-use icon glyphs and pictographs that PDFs glue to contact data (an envelope icon before an email).
+// Icon glyphs that PDFs glue to contact data.
 const SYMBOL_RE = /[\p{Co}\p{So}]/gu;
 const SINGLE_QUOTE_RE = cls('\\u2018-\\u201B\\u2032\\u0060\\u00B4');
 const DOUBLE_QUOTE_RE = cls('\\u201C-\\u201F\\u2033\\u00AB\\u00BB');
@@ -23,7 +22,6 @@ const COMPACT_SEPARATORS_RE = /[\s.\-_/]+/gu;
 const DOTTED_ABBREVIATION_RE =
   /(?<![\p{L}\p{N}])((?:\p{L}{1,3}\.){1,3}\p{L}{0,3})\.?(?![\p{L}\p{N}])/gu;
 
-/** NFKC, lowercase, unified quotes/dashes/ellipsis, invisible characters and icons removed. */
 export function normalizeText(text: string): string {
   return text
     .normalize('NFKC')
@@ -46,7 +44,6 @@ export function normalizePhrase(text: string): string {
   return stripEdgePunctuation(normalizeText(text));
 }
 
-/** Letter/digit runs of an already normalised string. */
 export function wordsOf(normalized: string): string[] {
   return normalized.match(WORD_RE) ?? [];
 }
@@ -59,7 +56,6 @@ export function collapseAbbreviations(normalized: string): string {
   return normalized.replace(DOTTED_ABBREVIATION_RE, (match) => match.replaceAll('.', ''));
 }
 
-/** "https://www.GitHub.com/jane/" and "github.com/jane" compare equal. */
 export function normalizeUrl(url: string): string {
   return stripEdgePunctuation(
     normalizeText(url)
@@ -78,11 +74,7 @@ function commonPrefixLength(a: string, b: string): number {
   return i;
 }
 
-/**
- * Same word up to inflection. English only gets plural forms; other scripts (Cyrillic, German
- * umlauts) share a stem when they agree on all but their last two letters: "Москва"/"Москве",
- * "руководил"/"руководителем".
- */
+/** English: plurals only. Other scripts: equal up to the last two letters ("Москва"/"Москве"). */
 export function sameWord(a: string, b: string): boolean {
   if (a === b) return true;
   if (isAsciiWord(a) && isAsciiWord(b)) {

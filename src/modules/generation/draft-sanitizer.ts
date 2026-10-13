@@ -22,12 +22,7 @@ import type {
   DraftSkillGroup,
 } from './llm-output.schemas.js';
 
-/*
- * Turns model output (untrusted) into content that satisfies the CV content schema: strings
- * are sanitised and clamped to the contract limits (clamping beats rejecting a whole draft
- * over one long bullet), empty items are dropped, ids are ours, and experience is ordered by
- * the model's relevance score in code rather than by trusting the array order.
- */
+// Clamping beats rejecting a whole draft over one long bullet.
 
 export const MAX_QUESTIONS = 8;
 export const MAX_QUOTES_PER_ITEM = 3;
@@ -36,7 +31,6 @@ const DEFAULT_SKILL_GROUP_NAME = 'Skills';
 
 export type IdFactory = () => string;
 
-/** Unverified quotes the model gave, per bullet id / 'summary'. */
 export type Evidence = Record<string, string[]>;
 
 export interface NewQuestion {
@@ -53,7 +47,6 @@ export interface SanitizedDraft {
 
 const ELLIPSIS = '\u2026';
 
-/** Fits `max` UTF-16 units: cut at the last word boundary and marked with an ellipsis. */
 export function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
   let cut = value.slice(0, max - ELLIPSIS.length);
@@ -96,7 +89,6 @@ export function sanitizeBullets(
   return result;
 }
 
-/** Null when the entry has nothing worth keeping. */
 export function sanitizeExperience(
   draft: DraftExperience,
   evidence: Evidence,
@@ -127,7 +119,6 @@ export function sanitizeEducation(draft: DraftEducation, id: string): EducationI
   return item.institution || item.degree || item.details ? item : null;
 }
 
-/** Deduplicates skills across groups (case-insensitively) and drops empty groups. */
 export function sanitizeSkillGroups(
   groups: readonly DraftSkillGroup[],
   groupId: (name: string) => string,
@@ -152,7 +143,6 @@ export function sanitizeSkillGroups(
   return result;
 }
 
-/** Keeps only links with a safe scheme (http, https, mailto or none). */
 export function sanitizeLinks(
   links: readonly DraftLink[],
   linkId: (url: string) => string,
@@ -187,10 +177,7 @@ function isQuestionSection(value: string): value is QuestionSection {
   return (QUESTION_SECTIONS as readonly string[]).includes(value);
 }
 
-/**
- * Maps the model's item indexes to our ids. Questions about an entry that does not exist (or
- * was dropped as empty) are dropped too: answering them could not update anything.
- */
+/** Questions about an entry that was dropped are dropped too: answering could change nothing. */
 export function sanitizeQuestions(
   questions: readonly DraftQuestion[],
   itemIds: { experience: ReadonlyMap<number, string>; education: ReadonlyMap<number, string> },
@@ -213,11 +200,10 @@ export function sanitizeQuestions(
   return result;
 }
 
-/** Validates assembled content with the same schema as manual edits. */
 export function toValidContent(candidate: CvContent): CvContent {
   const parsed = cvContentSchema.safeParse(candidate);
   if (!parsed.success) {
-    // Should be impossible after sanitising; if it happens it is our bug, not the user's.
+    // Our bug if it happens: sanitising should make this impossible.
     throw new PermanentError(
       'LLM_INVALID_OUTPUT',
       `Sanitised content failed validation: ${parsed.error.message.slice(0, 500)}`,
@@ -236,7 +222,7 @@ export function sanitizeDraft(draft: DraftCv, newId: IdFactory = randomUUID): Sa
       item: sanitizeExperience(item, evidence, { itemId: newId(), bulletId: () => newId() }),
     }))
     .filter((entry): entry is typeof entry & { item: ExperienceItem } => entry.item !== null)
-    // Bands of 10 so near-equal scores keep the model's most-recent-first order (sort is stable).
+    // Within a band of 10 the model's most-recent-first order stays (stable sort).
     .sort((a, b) => relevanceBand(b.relevance) - relevanceBand(a.relevance))
     .slice(0, L.experienceItems);
 

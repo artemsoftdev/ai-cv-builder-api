@@ -7,7 +7,6 @@ import { hashPassword, verifyAgainstDummyHash, verifyPassword } from './password
 import type { IssuedSession, SessionService } from './session.service.js';
 
 export interface Credentials {
-  /** Already normalised (trimmed + lowercased) by the request schema. */
   email: string;
   password: string;
 }
@@ -35,7 +34,7 @@ export class AuthService {
         return { user: toAuthUser(user), session };
       });
     } catch (err) {
-      // Relying on the unique constraint (not a pre-check) keeps concurrent signups race-free.
+      // The unique constraint, not a pre-check, keeps concurrent signups race-free.
       if (isUniqueViolation(err, 'users_email_key')) {
         throw new AppError('EMAIL_TAKEN', 'An account with this email already exists');
       }

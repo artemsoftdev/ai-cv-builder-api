@@ -16,7 +16,6 @@ export type JobType = (typeof JOB_TYPES)[number];
 export const JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
-/** A CV is "busy" while it has a job in one of these states (at most one, see migration). */
 export const ACTIVE_JOB_STATUSES = ['queued', 'running'] as const satisfies JobStatus[];
 
 @Entity({ name: 'jobs' })
@@ -34,7 +33,6 @@ export class JobEntity {
   @JoinColumn({ name: 'cv_id' })
   cv?: CvEntity;
 
-  /** Set for (and only for) apply_answer jobs. */
   @Column({ name: 'question_id', type: 'uuid', nullable: true })
   questionId!: string | null;
 

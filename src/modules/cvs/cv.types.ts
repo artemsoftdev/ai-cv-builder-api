@@ -1,7 +1,4 @@
-/*
- * Domain enums and the response DTOs from docs/API.md. Keep in sync with the contract
- * (the frontend mirrors these types in src/lib/api/types.ts).
- */
+// Contract types from docs/API.md, mirrored by the frontend.
 import type { CvContent } from './cv-content.schema.js';
 
 export type { CvContent };
@@ -27,16 +24,13 @@ export type QuestionSection = (typeof QUESTION_SECTIONS)[number];
 export const QUESTION_STATUSES = ['open', 'applying', 'applied', 'dismissed', 'failed'] as const;
 export type QuestionStatus = (typeof QUESTION_STATUSES)[number];
 
-/** Questions the user still has to act on (counted in CvSummary.openQuestions). */
 export const ACTIONABLE_QUESTION_STATUSES = ['open', 'failed'] as const satisfies QuestionStatus[];
 
-/** Flag target ids that are not item ids. */
 export const SUMMARY_TARGET_ID = 'summary';
 export const HEADLINE_TARGET_ID = 'headline';
 
 export interface ReviewFlag {
   id: string;
-  /** Bullet.id | ExperienceItem.id | EducationItem.id | 'summary' | 'headline' */
   itemId: string;
   reason: string;
 }
@@ -50,7 +44,6 @@ export interface RemovedClaim {
 export interface CvReview {
   flags: ReviewFlag[];
   removed: RemovedClaim[];
-  /** itemId -> verified verbatim quotes from the source */
   evidence: Record<string, string[]>;
 }
 
@@ -61,9 +54,7 @@ export interface CvQuestionDto {
   question: string;
   answer: string | null;
   status: QuestionStatus;
-  /** Job error code when status = 'failed'. */
   error: string | null;
-  /** User-facing explanation of `error`. */
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
@@ -72,9 +63,8 @@ export interface CvQuestionDto {
 export interface CvSourceDto {
   type: SourceType;
   filename: string | null;
-  /** `text` is Claude's transcription of a scanned PDF, not the PDF's own text layer. */
+  /** `text` is Claude's transcription of a scanned PDF. */
   transcribed: boolean;
-  /** null while a scanned PDF waits for its transcription. */
   text: string | null;
 }
 

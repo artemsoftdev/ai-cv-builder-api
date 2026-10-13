@@ -27,10 +27,8 @@ import {
 import { createRateLimiter, emailKey } from './middleware/rate-limit.js';
 import { createRequireAuth } from './middleware/require-auth.js';
 
-/** Rate-limit key for routes behind requireAuth: the user, not the IP. */
 const byUser = (req: Request) => getAuth(req).user.id;
 
-/** Composes every module router under /api. Services are created once per app instance. */
 export function createApiRouter(deps: AppDeps, options: AppOptions = {}): Router {
   const { config, dataSource } = deps;
   const sessions = new SessionService(dataSource);
@@ -58,13 +56,11 @@ export function createApiRouter(deps: AppDeps, options: AppOptions = {}): Router
     }),
   );
 
-  // Everything under /cvs requires a session. Authenticate once here, then let each feature
-  // router add its own routes on the same path.
   const capacity = {
     maxActiveGenerations: options.maxActiveGenerations ?? DEFAULT_MAX_ACTIVE_GENERATIONS,
     maxLiveJobs: options.maxLiveJobs ?? DEFAULT_MAX_LIVE_JOBS,
   };
-  // One budget for every generation start (create + retry): each costs LLM calls.
+  // Shared by create and retry: both cost LLM calls.
   const generationRateLimit = createRateLimiter(
     options.generationRateLimit ?? DEFAULT_GENERATION_RATE_LIMIT,
     { key: byUser, countSuccessesOnly: true },

@@ -8,9 +8,8 @@ import { extractLinks, extractText, getDocumentProxy, getMeta } from 'unpdf';
 const require = createRequire(import.meta.url);
 
 export interface PdfFixtureOptions {
-  /** Embed DejaVu Sans (needed for non-Latin text such as Cyrillic). */
+  /** Embeds DejaVu Sans, needed for Cyrillic. */
   unicode?: boolean;
-  /** Adds a link annotation whose URL does not appear in the text. */
   hiddenLinkUrl?: string;
 }
 
@@ -21,7 +20,6 @@ async function loadFont(doc: PDFDocument, unicode: boolean): Promise<PDFFont> {
   return doc.embedFont(await readFile(fontPath), { subset: true });
 }
 
-/** A PDF with a real text layer: one page per entry of `pages`, one line per string. */
 export async function makePdf(
   pages: readonly (readonly string[])[],
   options: PdfFixtureOptions = {},
@@ -29,7 +27,7 @@ export async function makePdf(
   const doc = await PDFDocument.create();
   const font = await loadFont(doc, options.unicode ?? false);
   for (const lines of pages) {
-    const page = doc.addPage([595, 842]); // A4 in points
+    const page = doc.addPage([595, 842]);
     lines.forEach((line, i) => {
       page.drawText(line, { x: 50, y: 790 - i * 16, size: 11, font });
     });
@@ -49,7 +47,6 @@ export async function makePdf(
   return Buffer.from(await doc.save());
 }
 
-/** A tiny one-page PDF whose Flate content stream inflates to `inflatedMb` of text operators. */
 export async function makeFlateBombPdf(inflatedMb: number): Promise<Buffer> {
   const doc = await PDFDocument.create();
   const page = doc.addPage([595, 842]);
@@ -64,7 +61,6 @@ export async function makeFlateBombPdf(inflatedMb: number): Promise<Buffer> {
   return Buffer.from(await doc.save());
 }
 
-/** A PDF without a text layer, like a scanned document (only shapes). */
 export async function makeScannedPdf(): Promise<Buffer> {
   const doc = await PDFDocument.create();
   const page = doc.addPage([595, 842]);
@@ -73,17 +69,14 @@ export async function makeScannedPdf(): Promise<Buffer> {
 }
 
 export interface InspectedPdf {
-  /** Width x height of every page, in points. */
   pageSizes: { width: number; height: number }[];
-  /** Extracted text per page, with whitespace runs (including line wraps) collapsed. */
+  /** Whitespace runs, line wraps included, collapsed. */
   pageTexts: string[];
-  /** All pages' text, joined and collapsed the same way. */
   text: string;
   links: string[];
   title: string | undefined;
 }
 
-/** Reads a generated PDF back the way a viewer or an ATS would: page boxes, text, links. */
 export async function inspectPdf(bytes: Buffer): Promise<InspectedPdf> {
   const doc = await getDocumentProxy(new Uint8Array(bytes), { verbosity: 0 });
   const pageSizes = [];

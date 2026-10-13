@@ -15,7 +15,6 @@ export function clearSessionCookie(res: Response, secure: boolean): void {
   res.clearCookie(SESSION_COOKIE, cookieOptions(secure));
 }
 
-/** Returns the session token from the cookie, or null when absent or malformed. */
 export function readSessionToken(req: Request): string | null {
   const cookies = req.cookies as Record<string, unknown> | undefined;
   const value = cookies?.[SESSION_COOKIE];

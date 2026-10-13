@@ -6,7 +6,6 @@ import { ApplyAnswerHandler } from './apply-answer.handler.js';
 import { GenerateCvHandler } from './generate-cv.handler.js';
 import { GenerationRepository } from './generation.repository.js';
 
-/** Handlers for every job type, wired to one LLM client. */
 export function createJobHandlers(deps: {
   dataSource: DataSource;
   llm: LlmClient;

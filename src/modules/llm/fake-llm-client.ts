@@ -11,7 +11,6 @@ import type {
 
 type MaybePromise<T> = T | Promise<T>;
 
-/** Per-method replacements, e.g. a draft with deliberately invented facts, or a thrown error. */
 export interface FakeLlmOverrides {
   transcribePdf?: (pdf: Buffer) => MaybePromise<string>;
   draftCv?: (input: DraftCvInput) => MaybePromise<DraftCv>;
@@ -19,17 +18,12 @@ export interface FakeLlmOverrides {
 }
 
 export interface FakeLlmOptions {
-  /** Artificial latency per call so the progress UI can be observed. Default 0. */
   delayMs?: number;
   overrides?: FakeLlmOverrides;
 }
 
-/**
- * Keyless LlmClient (LLM_PROVIDER=fake) for the local demo and tests: deterministic heuristics
- * that only copy text from the source, overridable per method.
- */
+/** Keyless demo and tests: heuristics that copy source text, overridable per method. */
 export class FakeLlmClient implements LlmClient {
-  /** Mutable so a test can change behaviour between steps. */
   overrides: FakeLlmOverrides;
   readonly calls = { transcribePdf: 0, draftCv: 0, rewriteSection: 0 };
   private readonly delayMs: number;
@@ -68,7 +62,6 @@ export class FakeLlmClient implements LlmClient {
     try {
       await sleep(this.delayMs, undefined, { signal });
     } catch (err) {
-      // Surface the abort reason (lease lost / shutdown), like the real client does.
       throw signal?.aborted ? signal.reason : err;
     }
   }

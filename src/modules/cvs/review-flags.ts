@@ -6,11 +6,7 @@ import {
   type ReviewFlag,
 } from './cv.types.js';
 
-/**
- * Maps every flaggable target id to a fingerprint of the text the flag is about.
- * An entry's fingerprint covers its own fields but not its bullets, so editing a bullet does
- * not clear a flag about the company name.
- */
+/** An entry's fingerprint excludes its bullets: editing a bullet keeps a company-name flag. */
 export function flagTargetFingerprints(content: CvContent | null): Map<string, string> {
   const targets = new Map<string, string>();
   if (!content) return targets;
@@ -39,11 +35,7 @@ export function flagTargetFingerprints(content: CvContent | null): Map<string, s
   return targets;
 }
 
-/**
- * Keeps only flags that still apply after an edit: the target must exist in the new content
- * with unchanged text, and the flag must not have been dismissed by the user.
- * (A flag that points at an unknown target is dropped too.)
- */
+/** Keeps flags whose target still exists unchanged and that were not dismissed. */
 export function pruneReviewFlags(
   flags: readonly ReviewFlag[],
   before: CvContent | null,
@@ -59,7 +51,6 @@ export function pruneReviewFlags(
   });
 }
 
-/** Keeps evidence only for targets whose text is unchanged. */
 export function pruneEvidence(
   evidence: CvReview['evidence'],
   before: CvContent | null,

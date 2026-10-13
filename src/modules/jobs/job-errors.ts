@@ -1,11 +1,5 @@
-/*
- * Error taxonomy for background jobs. Handlers (and the LLM layer they call) throw:
- *   - TransientError: worth retrying later (rate limit, overload, network, lost race);
- *   - PermanentError: retrying cannot help (refusal, unreadable source, missing API key).
- * Any other error is treated as transient until the attempts run out, then as INTERNAL.
- */
+// Unknown errors are retried like TransientError, then reported as INTERNAL.
 
-/** Codes stored in `cvs.error_code` / `cv_questions.error` (see docs/API.md). */
 export const JOB_ERROR_CODES = [
   'SOURCE_UNREADABLE',
   'LLM_NOT_CONFIGURED',
@@ -16,7 +10,6 @@ export const JOB_ERROR_CODES = [
 ] as const;
 export type JobErrorCode = (typeof JOB_ERROR_CODES)[number];
 
-/** Default user-facing text per code. Never contains internals. */
 export const JOB_ERROR_MESSAGES: Record<JobErrorCode, string> = {
   SOURCE_UNREADABLE:
     "We couldn't read any text from your source. Try a different PDF or paste the text instead.",
@@ -30,7 +23,6 @@ export const JOB_ERROR_MESSAGES: Record<JobErrorCode, string> = {
 export class TransientError extends Error {
   constructor(
     message: string,
-    /** Reported to the user if the job runs out of attempts. */
     readonly code: JobErrorCode = 'LLM_UNAVAILABLE',
     options?: ErrorOptions,
   ) {
@@ -44,7 +36,7 @@ export class PermanentError extends Error {
 
   constructor(
     readonly code: JobErrorCode,
-    /** Internal description for logs and `jobs.last_error`. */
+    /** Internal: logs and jobs.last_error only. */
     message: string,
     options?: ErrorOptions & { userMessage?: string },
   ) {
@@ -54,7 +46,6 @@ export class PermanentError extends Error {
   }
 }
 
-/** The worker no longer owns the job (lease expired and was reclaimed, or the CV was deleted). */
 export class LeaseLostError extends Error {
   constructor(readonly jobId: string) {
     super(`Lost the lease on job ${jobId}`);
@@ -62,7 +53,6 @@ export class LeaseLostError extends Error {
   }
 }
 
-/** Abort reason when an attempt runs past its deadline; retried like any transient error. */
 export class AttemptTimeoutError extends TransientError {
   constructor(timeoutMs: number) {
     super(`Attempt exceeded ${timeoutMs} ms`, 'LLM_UNAVAILABLE');
@@ -70,7 +60,6 @@ export class AttemptTimeoutError extends TransientError {
   }
 }
 
-/** Abort reason used when the worker shuts down while a handler is still running. */
 export class WorkerStoppingError extends Error {
   constructor() {
     super('Worker is shutting down');
@@ -78,13 +67,11 @@ export class WorkerStoppingError extends Error {
   }
 }
 
-/** What a failed job reports to its CV / question. */
 export interface JobFailure {
   code: JobErrorCode;
   userMessage: string;
 }
 
-/** Final failure for an error that will not be retried (any more). */
 export function toJobFailure(err: unknown): JobFailure {
   if (err instanceof PermanentError) return { code: err.code, userMessage: err.userMessage };
   if (err instanceof TransientError) {
@@ -93,7 +80,6 @@ export function toJobFailure(err: unknown): JobFailure {
   return { code: 'INTERNAL', userMessage: JOB_ERROR_MESSAGES.INTERNAL };
 }
 
-/** Bounded, single-line description for `jobs.last_error` (internal, never sent to clients). */
 export function describeError(err: unknown): string {
   const text =
     err instanceof Error ? `${err.name}: ${err.message}` : `Non-error thrown: ${String(err)}`;

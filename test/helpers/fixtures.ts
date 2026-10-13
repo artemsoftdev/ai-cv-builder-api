@@ -5,7 +5,6 @@ import { CvRepository, type NewCv } from '../../src/modules/cvs/cv.repository.js
 import type { QuestionSection, QuestionStatus } from '../../src/modules/cvs/cv.types.js';
 import { sampleContent, sampleReview } from '../fixtures/cv-content.js';
 
-/** Inserts a generated ("ready") CV owned by `userId`; override any column. */
 export async function createCv(
   dataSource: DataSource,
   userId: string,

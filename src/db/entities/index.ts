@@ -6,5 +6,4 @@ import { UserEntity } from './user.entity.js';
 
 export { CvEntity, CvQuestionEntity, JobEntity, SessionEntity, UserEntity };
 
-/** Registered explicitly (no globs) so bundling/ESM resolution cannot silently miss one. */
 export const ENTITIES = [UserEntity, SessionEntity, CvEntity, CvQuestionEntity, JobEntity];

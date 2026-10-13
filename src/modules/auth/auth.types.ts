@@ -4,13 +4,11 @@ export interface AuthUser {
   createdAt: Date;
 }
 
-/** Attached to authenticated requests by the requireAuth middleware. */
 export interface AuthContext {
   sessionId: string;
   user: AuthUser;
 }
 
-/** Contract DTO (docs/API.md `User`). */
 export interface UserDto {
   id: string;
   email: string;

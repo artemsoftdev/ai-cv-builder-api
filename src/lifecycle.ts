@@ -9,13 +9,11 @@ export interface ShutdownDeps {
   dataSource: { destroy(): Promise<void> };
   logger: Logger;
   exit: (code: number) => void;
-  /** Hard limit for the whole shutdown; must stay below the container's stop grace period. */
+  /** Must stay below the container's stop grace period. */
   timeoutMs: number;
-  /** In-flight requests get this long before their connections are cut. */
   drainMs: number;
 }
 
-/** Stops accepting requests; open requests get `drainMs`, then their connections are closed. */
 export function closeServer(server: ClosableServer, drainMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const cutOff = setTimeout(() => server.closeAllConnections(), drainMs);
@@ -29,10 +27,7 @@ export function closeServer(server: ClosableServer, drainMs: number): Promise<vo
   });
 }
 
-/**
- * HTTP draining and the worker's hand-back of running jobs happen at the same time, so a slow
- * upload cannot eat the worker's grace period; the pool both use is closed last.
- */
+/** HTTP drains while the worker hands its jobs back, not one after the other. */
 export function createShutdown(
   deps: ShutdownDeps,
 ): (reason: string, code: number) => Promise<void> {

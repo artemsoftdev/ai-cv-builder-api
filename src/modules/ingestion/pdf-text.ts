@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { SOURCE_LIMITS } from './source-text.js';
 
-/** A PDF we cannot (or will not) read; `userMessage` is safe to show. */
 export class PdfUnreadableError extends Error {
   constructor(
     readonly userMessage: string,
@@ -17,7 +16,6 @@ export class PdfUnreadableError extends Error {
 export interface ExtractedPdf {
   text: string;
   pages: number;
-  /** URLs of link annotations, e.g. a "GitHub" label whose URL is not in the text. */
   links: string[];
 }
 
@@ -46,7 +44,6 @@ const WORKER_URL = new URL(
   import.meta.url,
 );
 
-/** Checked on the bytes, not on the file name or the client's content type. */
 export function isPdf(bytes: Buffer): boolean {
   return bytes.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC);
 }
@@ -69,11 +66,7 @@ async function withParseSlot<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-/**
- * Reads the text layer with pdf.js in a worker thread: a crafted PDF (a decompression bomb, a
- * huge object graph) is stopped by the heap limit or terminated at the deadline instead of
- * blocking the API's event loop.
- */
+/** In a worker thread: a crafted PDF hits the heap limit or the deadline, not the event loop. */
 export function extractPdfText(
   bytes: Buffer,
   { timeoutMs = 10_000, maxPages = SOURCE_LIMITS.pdfPages, maxHeapMb = 256 }: ExtractOptions = {},

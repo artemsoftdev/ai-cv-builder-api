@@ -7,18 +7,14 @@ import type { CvService } from '../cvs/cv.service.js';
 import { attachmentDisposition, cvFileBaseName } from './content-disposition.js';
 import { renderCvPdf } from './render-cv-pdf.js';
 
-/** GET /api/cvs/:id/pdf, mounted behind requireAuth. */
 export function createPdfRouter(deps: {
   cvService: CvService;
-  /** Per-user budget: rendering is CPU work in the API process. */
   pdfRateLimit: RequestHandler;
 }): Router {
   const router = Router();
 
   router.get('/:id/pdf', deps.pdfRateLimit, async (req, res) => {
     const { id } = parseInput(cvParamsSchema, req.params);
-    // Ownership check included: another user's CV is a 404. The read transaction is over
-    // before rendering starts.
     const cv = await deps.cvService.get(getAuth(req).user.id, id);
     if (!cv.content) {
       throw new AppError('CV_NOT_READY', 'This CV has no generated content to export yet');

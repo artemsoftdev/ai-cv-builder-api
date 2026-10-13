@@ -2,7 +2,7 @@ import type { CvEntity, CvQuestionEntity } from '../../db/entities/index.js';
 import type { CvSummaryRow } from './cv.repository.js';
 import type { CvDto, CvQuestionDto, CvSummaryDto } from './cv.types.js';
 
-/** Maps rows to contract DTOs. Fields are listed explicitly so nothing internal leaks. */
+// Fields are listed explicitly so nothing internal leaks.
 export function toCvDto(cv: CvEntity, questions: CvQuestionEntity[], busy: boolean): CvDto {
   return {
     id: cv.id,

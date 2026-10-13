@@ -3,10 +3,7 @@ const AFFIRMATIVE_RE =
 const NEGATION_RE = /(?<!\p{L})(?:no|not|never|nope|нет|не|nicht|nein|non)(?!\p{L})/iu;
 const MAX_BARE_ANSWER_WORDS = 3;
 
-/**
- * What an answer contributes to the corpus. A bare "yes" carries no facts of its own, so it
- * confirms the statement in its question; any other answer stands for itself only.
- */
+/** A bare "yes" carries no facts of its own, so it confirms its question's statement. */
 export function answerFacts(question: string, answer: string): string[] {
   const text = answer.trim();
   const words = text.match(/[\p{L}\p{N}']+/gu) ?? [];

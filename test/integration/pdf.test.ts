@@ -16,7 +16,6 @@ beforeEach(async () => {
   alice = { agent, userId: user.id };
 });
 
-/** GET the PDF with the body collected as raw bytes. */
 function downloadPdf(agent: Browser, cvId: string) {
   return agent
     .get(`/api/cvs/${cvId}/pdf`)
@@ -102,7 +101,6 @@ describe('GET /api/cvs/:id/pdf', () => {
     expect(limited.body.error.code).toBe('RATE_LIMITED');
     expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
 
-    // Another user has a budget of their own.
     const bob = await signedInUser(ctx.app);
     const bobsCv = await createCv(ctx.dataSource, bob.user.id);
     expect((await downloadPdf(bob.agent, bobsCv.id)).status).toBe(200);

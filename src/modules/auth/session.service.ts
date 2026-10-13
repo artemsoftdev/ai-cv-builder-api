@@ -11,7 +11,6 @@ export interface IssuedSession {
 export class SessionService {
   constructor(private readonly dataSource: DataSource) {}
 
-  /** Creates a session; pass `manager` to take part in a surrounding transaction. */
   async issue(
     userId: string,
     manager: EntityManager = this.dataSource.manager,
@@ -22,7 +21,6 @@ export class SessionService {
     return { token, expiresAt };
   }
 
-  /** Resolves a cookie token to its user. Expired sessions are deleted on sight. */
   async authenticate(token: string): Promise<AuthContext | null> {
     const sessions = this.dataSource.getRepository(SessionEntity);
     const session = await sessions.findOne({
@@ -47,7 +45,6 @@ export class SessionService {
       .delete({ tokenHash: hashSessionToken(token) });
   }
 
-  /** Housekeeping on login, so abandoned sessions do not pile up forever. */
   async deleteExpired(userId: string): Promise<void> {
     await this.dataSource
       .createQueryBuilder()

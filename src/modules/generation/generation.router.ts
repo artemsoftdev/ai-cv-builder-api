@@ -12,7 +12,6 @@ const answerBodySchema = z.object({
   answer: multilineText(ANSWER_MAX_CHARS).min(1, 'Answer is required'),
 });
 
-/** Retry and answer routes, mounted at /api/cvs behind requireAuth. Both answer 202. */
 export function createGenerationRouter(deps: {
   generationService: GenerationService;
   generationRateLimit: RequestHandler;

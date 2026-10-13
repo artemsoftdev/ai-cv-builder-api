@@ -1,9 +1,5 @@
 import type { MigrationInterface, QueryRunner } from 'typeorm';
 
-/**
- * Initial schema. Hand-written so the SQL is reviewable; never edit an applied migration,
- * add a new one instead. gen_random_uuid() is built into PostgreSQL 13+.
- */
 export class InitialSchema1791849600000 implements MigrationInterface {
   name = 'InitialSchema1791849600000';
 
@@ -111,7 +107,6 @@ export class InitialSchema1791849600000 implements MigrationInterface {
         CONSTRAINT jobs_attempts_chk CHECK (attempts >= 0 AND max_attempts >= 1)
       )
     `);
-    // Worker polling: only live jobs are indexed, finished ones never slow the claim query.
     await queryRunner.query(
       `CREATE INDEX jobs_runnable_run_at_idx ON jobs (run_at) WHERE status IN ('queued', 'running')`,
     );
@@ -119,9 +114,7 @@ export class InitialSchema1791849600000 implements MigrationInterface {
     await queryRunner.query(
       `CREATE INDEX jobs_question_id_idx ON jobs (question_id) WHERE question_id IS NOT NULL`,
     );
-    // At most one live job per CV. This is what makes "busy" race-free: two concurrent
-    // requests that both try to enqueue work for the same CV cannot both succeed
-    // (the loser gets a unique violation, which the API maps to 409 CV_BUSY).
+    // Makes "busy" race-free: a second concurrent enqueue fails (409 CV_BUSY).
     await queryRunner.query(
       `CREATE UNIQUE INDEX jobs_one_active_per_cv_uidx ON jobs (cv_id)
          WHERE status IN ('queued', 'running')`,

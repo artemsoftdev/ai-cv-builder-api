@@ -9,19 +9,13 @@ export interface AppDeps {
   dataSource: DataSource;
 }
 
-/** Knobs that tests override; production uses the defaults. */
 export interface AppOptions {
-  /** Signup + login per client IP; one shared bucket behind Next.js unless TRUST_PROXY names a rewriting proxy. */
+  /** Per client IP: a single bucket behind Next.js unless TRUST_PROXY names a rewriting proxy. */
   credentialsRateLimit?: RateLimitOptions;
-  /** Failed signups + logins per email address. */
   accountRateLimit?: RateLimitOptions;
-  /** Accepted CV creations + retries per user. */
   generationRateLimit?: RateLimitOptions;
-  /** Accepted answers per user. */
   answerRateLimit?: RateLimitOptions;
-  /** CVs a user may have generating at the same time. */
   maxActiveGenerations?: number;
-  /** Queued + running jobs of all users before new work is refused. */
   maxLiveJobs?: number;
   pdfRateLimit?: RateLimitOptions;
 }

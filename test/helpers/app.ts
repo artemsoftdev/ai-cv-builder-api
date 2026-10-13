@@ -39,10 +39,7 @@ export interface TestContext {
   dataSource: DataSource;
 }
 
-/**
- * Registers hooks that connect to the shared test database, build the app and wipe all
- * tables before every test. Returns a context object filled in by beforeAll.
- */
+/** Tables are truncated before every test; the context is filled in by beforeAll. */
 export function useTestApp(
   options: AppOptions = {},
   configOverrides: Partial<AppConfig> = {},
@@ -77,7 +74,7 @@ export async function truncateAll(dataSource: DataSource): Promise<void> {
   await dataSource.query('TRUNCATE users, sessions, cvs, cv_questions, jobs CASCADE');
 }
 
-/** Agent that keeps cookies and always sends the CSRF header, like the real frontend. */
+/** Keeps cookies and sends the CSRF header, like the frontend. */
 export function browser(app: Express) {
   return supertest.agent(app).set('X-Requested-With', 'XMLHttpRequest');
 }
@@ -91,7 +88,6 @@ export function uniqueEmail(prefix = 'user'): string {
   return `${prefix}${emailCounter}@example.com`;
 }
 
-/** Signs up a fresh user and returns a logged-in agent. */
 export async function signedInUser(
   app: Express,
   email = uniqueEmail(),

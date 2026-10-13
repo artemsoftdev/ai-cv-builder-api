@@ -13,7 +13,6 @@ declare module 'vitest' {
 
 let container: StartedPostgreSqlContainer | undefined;
 
-/** Starts a throwaway Postgres (random host port) and applies the real migrations once. */
 export async function setup(project: TestProject): Promise<void> {
   container = await new PostgreSqlContainer('postgres:17-alpine').start();
   const databaseUrl = container.getConnectionUri();

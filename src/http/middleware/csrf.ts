@@ -3,11 +3,7 @@ import { AppError } from '../errors.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-/**
- * Every state-changing request must carry `X-Requested-With: XMLHttpRequest`. A cross-site
- * form post cannot set custom headers, and a cross-site fetch with one needs a CORS preflight
- * that this API never approves; together with SameSite=Lax cookies this blocks CSRF.
- */
+/** Cross-site forms cannot set this header; a cross-site fetch would need CORS. */
 export const requireCsrfHeader: RequestHandler = (req, _res, next) => {
   if (SAFE_METHODS.has(req.method) || req.get('x-requested-with') === 'XMLHttpRequest') {
     next();

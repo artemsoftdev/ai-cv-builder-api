@@ -37,18 +37,15 @@ import {
   type IdFactory,
 } from './draft-sanitizer.js';
 
-/** The part of the CV a question is about. */
 export interface RewriteTarget {
   section: QuestionSection;
-  /** Experience/education entry; null for the section (or, there, for missing entries). */
+  /** Null for a whole section, or for entries that are missing. */
   itemId: string | null;
 }
 
 export interface AppliedRewrite {
   content: CvContent;
-  /** Verification result for the rewritten part only. */
   review: CvReview;
-  /** Which existing review entries the part review replaces. */
   scope: ReviewScope;
 }
 
@@ -68,7 +65,6 @@ function withoutId<T extends { id: string }>({ id: _id, ...fields }: T): Omit<T,
   return fields;
 }
 
-/** What the model sees of the targeted part: plain values, no ids. */
 export function sectionSnapshot(content: CvContent, target: RewriteTarget): SectionSnapshot {
   switch (target.section) {
     case 'contact': {
@@ -123,11 +119,7 @@ export function sectionSnapshot(content: CvContent, target: RewriteTarget): Sect
 
 const noScope = (): ReviewScope => ({ targetIds: new Set(), removedFields: [] });
 
-/**
- * Applies the model's rewrite of one part and re-verifies only that part. Ids stay stable:
- * the entry keeps its id, unchanged bullets keep theirs, links and skill groups are matched by
- * URL / name, so flags and evidence elsewhere stay valid.
- */
+/** Re-verifies only the rewritten part; ids stay stable so flags and evidence elsewhere hold. */
 export function applySectionRewrite(
   content: CvContent,
   target: RewriteTarget,
@@ -149,7 +141,7 @@ export function applySectionRewrite(
       const current = content.contact;
       const linkIds = new Map(current.links.map((link) => [link.url, link.id]));
       const fields = sanitizeContactFields(rewrite.data);
-      // An empty value from the model would erase what the user has: keep the current one.
+      // An empty value from the model would erase what the user has.
       const verified = verifyContact(
         {
           fullName: fields.fullName || current.fullName,
@@ -218,7 +210,6 @@ export function applySectionRewrite(
           sanitizeExperience(draft, evidence, { itemId: newId(), bulletId: () => newId() }),
         )
         .filter((item): item is ExperienceItem => item !== null)
-        // Asked for new entries only, the model may still repeat existing ones.
         .filter((item) => !known.has(entryKey(item.company, item.title)))
         .slice(0, L.experienceItems - content.experience.length);
       return {
@@ -278,13 +269,11 @@ export function applySectionRewrite(
   }
 }
 
-/** Identity of an entry for duplicate detection: its two names, case-insensitively. */
 const entryKey = (...names: string[]) => JSON.stringify(names.map((n) => n.toLowerCase()));
 
 const emptyRewrite = () =>
   new TransientError('The rewrite returned no usable entry', 'LLM_INVALID_OUTPUT');
 
-/** The rewritten version of an existing entry: same id, unchanged bullets keep their ids. */
 function rewriteEntry(
   existing: ExperienceItem,
   draft: Parameters<typeof sanitizeExperience>[0] | undefined,

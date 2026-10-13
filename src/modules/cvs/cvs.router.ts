@@ -4,11 +4,6 @@ import { parseInput } from '../../http/validation.js';
 import { cvParamsSchema, patchCvBodySchema, questionParamsSchema } from './cv.schemas.js';
 import type { CvService } from './cv.service.js';
 
-/**
- * CV read/edit/delete routes, mounted at /api/cvs behind requireAuth.
- * Creation, retry, answers (part 2) and PDF export (part 3) live in their own routers mounted
- * on the same path, see http/routes.ts.
- */
 export function createCvsRouter({ cvService }: { cvService: CvService }): Router {
   const router = Router();
 

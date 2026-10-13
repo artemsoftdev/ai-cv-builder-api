@@ -7,16 +7,11 @@ import { FakeLlmClient } from '../../src/modules/llm/fake-llm-client.js';
 import type { LlmClient } from '../../src/modules/llm/llm-client.js';
 
 export interface TestWorkerOptions extends Partial<WorkerOptions> {
-  /** Default: a FakeLlmClient without delay. */
   llm?: LlmClient;
-  /** Replaces the real generation handlers (queue-level tests). */
   handlers?: JobHandlers;
 }
 
-/**
- * A worker that is never started: tests drive it deterministically with runOnce()/drain().
- * Retries are immediate unless retryDelaysMs says otherwise.
- */
+/** Driven with runOnce()/drain(); retries are immediate unless retryDelaysMs says otherwise. */
 export function createTestWorker(
   dataSource: DataSource,
   { llm = new FakeLlmClient(), handlers, ...options }: TestWorkerOptions = {},

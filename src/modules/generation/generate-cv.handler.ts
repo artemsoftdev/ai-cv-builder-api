@@ -14,7 +14,6 @@ import { sanitizeDraft } from './draft-sanitizer.js';
 import type { GenerationRepository } from './generation.repository.js';
 import { NO_READABLE_TEXT } from './prompts.js';
 
-/** A transcription shorter than this did not find a CV in the scan. */
 const MIN_TRANSCRIBED_CHARS = 50;
 
 export interface GenerationDeps {
@@ -23,18 +22,13 @@ export interface GenerationDeps {
   logger: Logger;
 }
 
-/**
- * generate_cv: (extracting, scanned PDFs only) -> drafting -> verifying -> done.
- * Nothing user-visible is written until the end, where content, review, questions and the job
- * status are committed together.
- */
+/** Content, review, questions and the job status are committed together at the end. */
 export class GenerateCvHandler implements JobHandler {
   constructor(private readonly deps: GenerationDeps) {}
 
   async run(job: ClaimedJob, ctx: JobContext): Promise<void> {
     const { repository, llm, logger } = this.deps;
     const cv = await repository.loadSource(job.cvId);
-    // Deleted CV: its jobs were deleted with it (FK cascade), so there is nothing to finish.
     if (!cv) throw new LeaseLostError(job.id);
     if (cv.status !== 'generating') {
       logger.warn(
@@ -92,7 +86,7 @@ export class GenerateCvHandler implements JobHandler {
     await this.deps.repository.markGenerationFailed(manager, job.cvId, failure);
   }
 
-  /** Transcription is model output too: normalised and checked like an uploaded text. */
+  /** Model output: normalised and checked like an uploaded text. */
   private async transcribe(pdf: Buffer, signal: AbortSignal): Promise<string> {
     const text = normalizeSourceText(await this.deps.llm.transcribePdf(pdf, { signal }));
     if (text.includes(NO_READABLE_TEXT) || countNonWhitespace(text) < MIN_TRANSCRIBED_CHARS) {

@@ -26,7 +26,6 @@ function entryExists(content: CvContent, section: QuestionSection, itemId: strin
 const isActionable = (status: QuestionStatus) =>
   (ACTIONABLE_QUESTION_STATUSES as readonly QuestionStatus[]).includes(status);
 
-/** User-triggered work for the job queue: retrying a failed generation, applying answers. */
 export class GenerationService {
   constructor(
     private readonly deps: {
@@ -36,7 +35,6 @@ export class GenerationService {
     },
   ) {}
 
-  /** failed -> generating/queued with a fresh job. */
   async retry(userId: string, cvId: string): Promise<CvDto> {
     await this.withBusyMapping(() =>
       this.deps.dataSource.transaction(async (manager) => {
@@ -45,7 +43,7 @@ export class GenerationService {
         if (cv.status !== 'failed') throw retryNotAllowed(cv.status);
         await assertGenerationCapacity(manager, userId, this.deps.capacity.maxActiveGenerations);
         await assertQueueCapacity(manager, this.deps.capacity.maxLiveJobs);
-        // Re-checked in the UPDATE: a concurrent retry waited on the user lock above.
+        // Re-checked here: a concurrent retry waited on the user lock above.
         const { affected } = await runSql(
           manager,
           `UPDATE cvs
@@ -61,7 +59,6 @@ export class GenerationService {
     return this.deps.cvService.get(userId, cvId);
   }
 
-  /** Stores the answer, marks the question `applying` and enqueues the rewrite. */
   async submitAnswer(
     userId: string,
     cvId: string,
@@ -106,14 +103,13 @@ export class GenerationService {
         if (affected !== 1) {
           throw new AppError('INVALID_STATE', 'This question was answered or dismissed meanwhile');
         }
-        // The unique index on live jobs per CV makes a concurrent second answer fail here.
+        // A concurrent second answer fails here on the one-live-job-per-CV index.
         await enqueueJob(manager, { type: 'apply_answer', cvId, questionId });
       }),
     );
     return this.deps.cvService.get(userId, cvId);
   }
 
-  /** A unique violation on the live-job index means another job won the race: 409 CV_BUSY. */
   private async withBusyMapping(work: () => Promise<void>): Promise<void> {
     try {
       await work();

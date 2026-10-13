@@ -47,14 +47,7 @@ const styles = StyleSheet.create({
   skillRow: { marginBottom: 2 },
 });
 
-/**
- * Single-column A4 CV. Everything is real text in an embedded font, so the PDF is selectable,
- * searchable and readable by applicant tracking systems. Values are rendered as plain text
- * nodes (react-pdf has no HTML), so CV content cannot inject markup.
- *
- * No page-number footer: react-pdf 4.9 crashes ("unsupported number") on `render`-prop text
- * in documents of about ten pages or more, which the content limits allow.
- */
+/** No page numbers: react-pdf 4.9 crashes on `render`-prop text in documents of ~10+ pages. */
 export function CvDocument({
   cv,
   title,
@@ -62,7 +55,6 @@ export function CvDocument({
 }: {
   cv: PrintableCv;
   title: string;
-  /** Registered by registerDocumentFonts() for this document. */
   fontFamily: string;
 }) {
   return (

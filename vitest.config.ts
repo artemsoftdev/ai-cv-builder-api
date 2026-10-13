@@ -17,8 +17,7 @@ export default defineConfig({
           name: 'integration',
           include: ['test/integration/**/*.test.ts'],
           environment: 'node',
-          // One Postgres container for the whole run; files share it and truncate tables
-          // between tests, so they must not run in parallel.
+          // Files share one database and truncate it between tests.
           globalSetup: ['test/integration/global-setup.ts'],
           setupFiles: ['test/integration/setup.ts'],
           fileParallelism: false,

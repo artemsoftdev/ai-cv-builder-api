@@ -40,22 +40,18 @@ export class CvEntity {
   @Column({ name: 'source_filename', type: 'text', nullable: true })
   sourceFilename!: string | null;
 
-  /**
-   * Extracted/pasted source text. NULL only for scanned PDFs until Claude has transcribed them.
-   * Not selected by default: large, and only the generation pipeline needs it.
-   */
+  /** NULL only for a scanned PDF until it is transcribed. */
   @Column({ name: 'source_text', type: 'text', nullable: true, select: false })
   sourceText!: string | null;
 
-  /** Original PDF bytes, kept only for scanned PDFs until transcription. Not selected by default. */
+  /** Kept only for a scanned PDF until it is transcribed. */
   @Column({ name: 'source_pdf', type: 'bytea', nullable: true, select: false })
   sourcePdf!: Buffer | null;
 
-  /** source_text is Claude's transcription of a scanned PDF. */
   @Column({ name: 'source_transcribed', type: 'boolean', default: false })
   sourceTranscribed!: boolean;
 
-  /** Text the user typed or confirmed in the editor; grounds later answer rewrites. */
+  /** Text the user typed or confirmed; grounds later answer rewrites. */
   @Column({ name: 'user_facts', type: 'jsonb', default: () => "'[]'::jsonb", select: false })
   userFacts!: string[];
 
@@ -77,18 +73,14 @@ export class CvEntity {
   @Column({ type: 'jsonb', nullable: true })
   review!: CvReview | null;
 
-  /**
-   * Optimistic-locking counter for content/title/review changes. Deliberately a plain column,
-   * not @VersionColumn: TypeORM would bump that on every update (e.g. stage changes), which
-   * would make the editor's version stale for no reason.
-   */
+  /** Not @VersionColumn: stage updates must not make the editor's version stale. */
   @Column({ type: 'integer', default: 1 })
   version!: number;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
-  /** Set automatically by TypeORM updates; raw SQL updates must set it explicitly. */
+  /** Raw SQL updates must set it explicitly. */
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
 }

@@ -25,7 +25,6 @@ export class CvQuestionEntity {
   @Column({ type: 'text' })
   section!: QuestionSection;
 
-  /** ExperienceItem.id / EducationItem.id when the question is about one entry. */
   @Column({ name: 'item_id', type: 'text', nullable: true })
   itemId!: string | null;
 
@@ -44,7 +43,6 @@ export class CvQuestionEntity {
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage!: string | null;
 
-  /** Display order within the CV (questions are returned ordered by position). */
   @Column({ type: 'integer' })
   position!: number;
 

@@ -35,16 +35,10 @@ export interface AnswerContext {
     answer: string | null;
     status: CvQuestionEntity['status'];
   };
-  /** Other questions of this CV whose answers were already applied. */
   appliedAnswers: AnsweredQuestion[];
 }
 
-/**
- * Data access for the background pipeline. Jobs act for the system, not a user, so unlike
- * CvRepository nothing here is scoped by user. Writes made while a job runs are guarded by its
- * lease; writes inside `JobContext.complete()` are not, because that transaction has already
- * verified (and locked) the lease.
- */
+/** Not user-scoped; writes are lease-guarded, except in complete(), which holds the lease. */
 export class GenerationRepository {
   constructor(private readonly dataSource: DataSource) {}
 
@@ -57,7 +51,6 @@ export class GenerationRepository {
       .getOne();
   }
 
-  /** Progress shown to the user. Not a content change: the version stays. */
   async setStage(cvId: string, stage: GenerationStage, lease: Lease): Promise<void> {
     await runSql(
       this.dataSource.manager,
@@ -67,10 +60,7 @@ export class GenerationRepository {
     );
   }
 
-  /**
-   * Keeps the transcription of a scanned PDF and drops the PDF bytes, so a later retry does
-   * not transcribe (and pay for) it again.
-   */
+  /** A retry does not transcribe (and pay for) the PDF again. */
   async saveTranscription(cvId: string, text: string, lease: Lease): Promise<void> {
     await runSql(
       this.dataSource.manager,
@@ -81,7 +71,6 @@ export class GenerationRepository {
     );
   }
 
-  /** Stores the generated CV and its questions (inside the job's completing transaction). */
   async saveGenerated(
     manager: EntityManager,
     cvId: string,
@@ -95,7 +84,6 @@ export class GenerationRepository {
         WHERE id = $3`,
       [JSON.stringify(result.content), JSON.stringify(result.review), cvId],
     );
-    // A generation defines the CV from scratch, so questions about an older draft go away.
     await manager.delete(CvQuestionEntity, { cvId });
     if (result.questions.length > 0) {
       await manager.insert(
@@ -150,10 +138,7 @@ export class GenerationRepository {
     };
   }
 
-  /**
-   * Stores the content updated from an answer if the CV is still at `expectedVersion`, and
-   * marks the question applied. Returns false (writing nothing) on a version mismatch.
-   */
+  /** False, writing nothing, when the CV is no longer at `expectedVersion`. */
   async saveAnswerResult(
     manager: EntityManager,
     update: {

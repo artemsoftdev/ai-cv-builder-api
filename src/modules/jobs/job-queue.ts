@@ -4,18 +4,13 @@ import { isUniqueViolation } from '../../db/errors.js';
 import { runSql } from '../../db/sql.js';
 import type { ClaimedJob, Lease } from './job.types.js';
 
-/** Partial unique index: at most one queued/running job per CV (see the initial migration). */
 export const ONE_ACTIVE_JOB_PER_CV_INDEX = 'jobs_one_active_per_cv_uidx';
 
 export type NewJob =
   | { type: 'generate_cv'; cvId: string }
   | { type: 'apply_answer'; cvId: string; questionId: string };
 
-/**
- * Inserts a queued job, normally inside the transaction that creates the work (CV row, answer).
- * If the CV already has a live job this throws a unique violation; check it with
- * `isCvBusyError` after the transaction has rolled back.
- */
+/** Throws a unique violation if the CV already has a live job; see isCvBusyError. */
 export async function enqueueJob(manager: EntityManager, job: NewJob): Promise<string> {
   const questionId = job.type === 'apply_answer' ? job.questionId : null;
   const { rows } = await runSql<{ id: string }>(
@@ -38,10 +33,6 @@ export async function countLiveJobs(manager: EntityManager): Promise<number> {
   return rows[0]?.count ?? 0;
 }
 
-/**
- * SQL condition "the job is still running and leased to this worker", for statements that
- * write on behalf of a job. Pass the placeholders that hold the job id and worker id.
- */
 export function leaseHeldSql(jobIdParam: string, lockedByParam: string): string {
   return `EXISTS (
     SELECT 1 FROM jobs
@@ -58,15 +49,11 @@ interface ClaimedJobRow {
   maxAttempts: number;
 }
 
-/** Postgres-backed job queue operations. Every state change after the claim is lease-guarded. */
+/** Every state change after the claim is guarded by the lease. */
 export class JobQueue {
   constructor(private readonly dataSource: DataSource) {}
 
-  /**
-   * Atomically takes a runnable job: queued and due, or running with an expired lease. Users
-   * with fewer live jobs go first, so one user's backlog cannot starve everyone else; within a
-   * user the oldest job wins. The claim increments the attempt counter.
-   */
+  /** Due or lease-expired jobs; users with fewer live jobs first, so no backlog starves others. */
   async claim(lockedBy: string, leaseMs: number): Promise<ClaimedJob | null> {
     const { rows } = await runSql<ClaimedJobRow>(
       this.dataSource.manager,
@@ -100,7 +87,7 @@ export class JobQueue {
     return rows[0] ?? null;
   }
 
-  /** Extends the lease; false means the job is no longer ours (reclaimed, finished or deleted). */
+  /** False when the job is no longer ours (reclaimed, finished or deleted). */
   async heartbeat(lease: Lease, leaseMs: number): Promise<boolean> {
     const { affected } = await runSql(
       this.dataSource.manager,
@@ -112,17 +99,14 @@ export class JobQueue {
     return affected === 1;
   }
 
-  /** Marks the job succeeded inside the caller's transaction (which also writes the result). */
   async markSucceeded(manager: EntityManager, lease: Lease): Promise<boolean> {
     return this.finish(manager, lease, 'succeeded', null);
   }
 
-  /** Marks the job failed inside the caller's transaction (which also records the failure). */
   async markFailed(manager: EntityManager, lease: Lease, lastError: string): Promise<boolean> {
     return this.finish(manager, lease, 'failed', lastError);
   }
 
-  /** Puts the job back in the queue to run again after `delayMs`. */
   async reschedule(lease: Lease, delayMs: number, lastError: string): Promise<boolean> {
     const { affected } = await runSql(
       this.dataSource.manager,
@@ -139,10 +123,7 @@ export class JobQueue {
     return affected === 1;
   }
 
-  /**
-   * Hands an interrupted job back to the queue immediately (worker shutdown). The attempt is not
-   * counted: the job did not fail, the process just stopped.
-   */
+  /** Shutdown hand-back: the attempt is not counted, the job did not fail. */
   async release(lease: Lease): Promise<boolean> {
     const { affected } = await runSql(
       this.dataSource.manager,

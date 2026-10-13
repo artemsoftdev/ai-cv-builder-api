@@ -28,7 +28,6 @@ function loadConfigOrExit(): AppConfig {
   }
 }
 
-/** Resolves once the port is bound; rejects on EADDRINUSE and similar. */
 function listen(app: Express, port: number): Promise<Server> {
   return new Promise((resolve, reject) => {
     const server = app.listen(port, (err) => (err ? reject(err) : resolve(server)));
@@ -38,10 +37,9 @@ function listen(app: Express, port: number): Promise<Server> {
 async function main(config: AppConfig, logger: Logger): Promise<void> {
   const dataSource = createDataSource({ url: config.databaseUrl, logger });
 
-  // A broken image (fonts not copied) should fail now, not on the first PDF download.
+  // A broken image should fail now, not on the first PDF download.
   await assertPdfFontsReadable();
 
-  // Migrations run before the port opens, so no request ever sees an old schema.
   await waitForDatabase(config.databaseUrl, logger);
   await dataSource.initialize();
   await runMigrations(dataSource, logger);
@@ -52,8 +50,6 @@ async function main(config: AppConfig, logger: Logger): Promise<void> {
     'API listening',
   );
 
-  // The worker runs in this process and shares the connection pool. With WORKER_ENABLED=false
-  // jobs simply stay queued until a process with a worker picks them up.
   const worker = config.worker.enabled
     ? new JobWorker(
         {
@@ -82,9 +78,7 @@ async function main(config: AppConfig, logger: Logger): Promise<void> {
 
   process.on('SIGTERM', () => void shutdown('SIGTERM', 0));
   process.on('SIGINT', () => void shutdown('SIGINT', 0));
-  // A bug left a promise unhandled or an exception uncaught: state is unknown, so stop cleanly
-  // and let the container restart us (jobs are lease-based and survive a restart) instead of
-  // limping on. The forced-exit timer bounds a shutdown that hangs because of the same bug.
+  // State is unknown after a bug: stop and let the container restart (jobs survive via leases).
   process.on('unhandledRejection', (err) => {
     logger.fatal({ err }, 'Unhandled promise rejection');
     void shutdown('unhandledRejection', 1);
@@ -98,7 +92,6 @@ async function main(config: AppConfig, logger: Logger): Promise<void> {
 const config = loadConfigOrExit();
 const logger = createLogger(config.logLevel);
 main(config, logger).catch((err: unknown) => {
-  // Database unreachable, migration failed, port taken, fonts missing...
   logger.fatal({ err }, 'Fatal error during startup');
   process.exit(1);
 });

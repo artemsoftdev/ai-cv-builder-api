@@ -20,7 +20,6 @@ export class SessionEntity {
   @JoinColumn({ name: 'user_id' })
   user?: UserEntity;
 
-  /** SHA-256 (hex) of the cookie token; the token itself is never stored. */
   @Column({ name: 'token_hash', type: 'text', unique: true })
   tokenHash!: string;
 

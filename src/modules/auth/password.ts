@@ -1,10 +1,6 @@
 import { randomBytes, scrypt, timingSafeEqual, type ScryptOptions } from 'node:crypto';
 
-/*
- * Password hashing with scrypt (node:crypto, no native deps).
- * Encoded format: "scrypt$N$r$p$<salt base64url>$<hash base64url>" so parameters can be raised
- * later without invalidating existing hashes.
- */
+// "scrypt$N$r$p$salt$hash": parameters can be raised later without invalidating old hashes.
 
 const SCHEME = 'scrypt';
 const PARAMS = { N: 16_384, r: 8, p: 1 } as const;
@@ -25,10 +21,10 @@ function deriveKey(
   keyLength: number,
   { N, r, p }: Pick<ParsedHash, 'N' | 'r' | 'p'>,
 ): Promise<Buffer> {
-  // scrypt needs ~128 * N * r bytes; leave headroom above that instead of the 32 MiB default.
+  // scrypt needs ~128 * N * r bytes; the 32 MiB default is too tight.
   const options: ScryptOptions = { N, r, p, maxmem: 256 * N * r };
   return new Promise((resolve, reject) => {
-    // NFC so the same password typed on different OSes/keyboards hashes identically.
+    // NFC: the same password typed on another OS or keyboard must match.
     scrypt(password.normalize('NFC'), salt, keyLength, options, (err, key) =>
       err ? reject(err) : resolve(key),
     );
@@ -48,7 +44,6 @@ export async function hashPassword(password: string): Promise<string> {
   ].join('$');
 }
 
-/** Constant-time check. A malformed stored hash verifies as false instead of throwing. */
 export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
   const parsed = parseHash(encoded);
   if (!parsed) return false;
@@ -58,10 +53,7 @@ export async function verifyPassword(password: string, encoded: string): Promise
 
 let dummyHash: Promise<string> | undefined;
 
-/**
- * Burns the same CPU time as a real verification. Called when the email is unknown so that
- * response timing does not reveal which emails have accounts.
- */
+/** For unknown emails, so response timing does not reveal which emails have accounts. */
 export async function verifyAgainstDummyHash(password: string): Promise<void> {
   dummyHash ??= hashPassword('not-a-real-password');
   await verifyPassword(password, await dummyHash);
@@ -71,7 +63,7 @@ function parseHash(encoded: string): ParsedHash | null {
   const parts = encoded.split('$');
   if (parts.length !== 6 || parts[0] !== SCHEME) return null;
   const [N, r, p] = parts.slice(1, 4).map(Number) as [number, number, number];
-  // Bounded so that a corrupted row cannot make a login burn unbounded CPU/memory.
+  // Bounded: a corrupted row must not make a login burn unbounded CPU and memory.
   const saneParams =
     Number.isInteger(N) &&
     N >= 2 ** 10 &&

@@ -229,7 +229,6 @@ describe('POST /api/cvs with text', () => {
     expect(fourth.body.error.code).toBe('RATE_LIMITED');
     expect(fourth.headers['retry-after']).toBe('30');
 
-    // Other users are not affected.
     const other = await signedInUser(ctx.app);
     expect((await postText(other.agent, SOURCE)).status).toBe(202);
 
@@ -298,7 +297,6 @@ describe('POST /api/cvs with a PDF', () => {
     await worker.drain();
     const cv = await getCv(accepted.id);
     expect(cv.status).toBe('ready');
-    // The link came from the annotation, so it survives verification.
     expect(cv.content!.contact.links.map((l) => l.url)).toEqual(['https://github.com/janedoe']);
   });
 
@@ -457,7 +455,6 @@ describe('POST /api/cvs/:id/questions/:questionId/answer', () => {
     const after = updated.content!.experience.find((e) => e.id === question.itemId)!;
     expect(after).toMatchObject({ id: before.id, startDate: '2019', endDate: '2023' });
     expect(after.bullets.map((b) => b.id)).toEqual(before.bullets.map((b) => b.id));
-    // Nothing else changed, and the answer's years count as grounded.
     expect({ ...updated.content, experience: [] }).toEqual({ ...cv.content, experience: [] });
     expect(updated.review!.flags).toEqual([]);
   });
@@ -479,7 +476,6 @@ describe('POST /api/cvs/:id/questions/:questionId/answer', () => {
       .send({ version: cv.version, title: 'x' });
     expect(patch.status).toBe(409);
     expect(patch.body.error.code).toBe('CV_BUSY');
-    // The rejected answer left the other question untouched.
     expect((await getCv(cv.id)).questions.find((q) => q.id === other.id)?.status).toBe('open');
   });
 

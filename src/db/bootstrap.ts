@@ -3,13 +3,11 @@ import pg from 'pg';
 import type { DataSource } from 'typeorm';
 import type { Logger } from '../logger.js';
 
-/** Arbitrary but fixed key for pg_advisory_lock, so concurrent boots migrate one at a time. */
 const MIGRATION_LOCK_KEY = 4_206_942;
 
 export interface WaitOptions {
   attempts?: number;
   delayMs?: number;
-  /** Rejects while the database is unreachable. */
   check?: (url: string) => Promise<void>;
 }
 
@@ -23,7 +21,6 @@ async function selectOne(url: string): Promise<void> {
   }
 }
 
-/** Retries until Postgres accepts connections, so a restart does not depend on compose ordering. */
 export async function waitForDatabase(
   url: string,
   logger: Logger,
@@ -44,7 +41,7 @@ export async function waitForDatabase(
   }
 }
 
-/** Applies pending migrations in one transaction, serialised across instances. */
+/** One transaction, serialised across instances by an advisory lock. */
 export async function runMigrations(dataSource: DataSource, logger: Logger): Promise<void> {
   const lockRunner = dataSource.createQueryRunner();
   await lockRunner.connect();

@@ -1,10 +1,6 @@
 import type { CvContent } from '../cvs/cv-content.schema.js';
 
-/**
- * What the PDF template renders: the CV content with empty fields, items and sections removed
- * and links resolved, so the template itself has no decisions to make. Manual edits can leave
- * empty entries behind (the editor adds blank items), and none of them should print.
- */
+/** Empty parts removed and links resolved, so the template decides nothing. */
 export interface PrintableCv {
   name: string;
   headline: string;
@@ -17,18 +13,15 @@ export interface PrintableCv {
 
 export interface ContactItem {
   text: string;
-  /** Clickable target, or null when the value is printed as plain text. */
   href: string | null;
 }
 
-/** An experience or education entry: "title — subtitle", dates on the right, then details. */
 export interface PrintableEntry {
   id: string;
   title: string;
   subtitle: string;
   dates: string;
   location: string;
-  /** Education only (may contain line breaks). */
   details: string;
   bullets: { id: string; text: string }[];
 }
@@ -36,11 +29,9 @@ export interface PrintableEntry {
 const SAFE_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
 const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-// "github.com/jane", "www.jane.dev": a host name ending in an alphabetic TLD, then optionally a
-// port or path.
+// "github.com/jane", "www.jane.dev"
 const BARE_DOMAIN_RE = /^[\p{L}\p{N}-]+(\.[\p{L}\p{N}-]+)*\.\p{L}{2,}([:/?#]\S*)?$/u;
 
-/** Link target for a stored URL; null when it should not be clickable. */
 export function linkHref(url: string): string | null {
   const value = url.trim();
   const scheme = SCHEME_RE.exec(value)?.[0].toLowerCase();
@@ -50,7 +41,7 @@ export function linkHref(url: string): string | null {
   return null;
 }
 
-/** A printed CV must show the address itself (paper is not clickable), without the protocol. */
+/** Paper is not clickable: print the address itself. */
 export function linkText(link: { label: string; url: string }): string {
   const url = link.url
     .trim()

@@ -1,12 +1,4 @@
-/*
- * Manual check of the real Claude integration (no database needed). Drafts a CV from a text
- * file, or transcribes a PDF first, then runs the sanitiser and the grounding verifier and
- * prints the result. Optionally applies an answer to the first question.
- *
- *   npm run smoke:llm -- [source.txt|source.pdf] [target role] [answer to the first question]
- *
- * Reads ANTHROPIC_API_KEY (and the other ANTHROPIC_* settings) from .env.
- */
+// Live Claude check, no database: npm run smoke:llm -- [source.txt|.pdf] [role] [answer]
 import { readFile } from 'node:fs/promises';
 import { loadConfig } from '../src/config/config.js';
 import { createLogger } from '../src/logger.js';
@@ -34,7 +26,7 @@ TU Berlin — BSc Computer Science (2014–2018)`;
 
 async function main(): Promise<void> {
   const [path, role = 'Senior Backend Engineer', answer] = process.argv.slice(2);
-  // The LLM settings are all this needs; DATABASE_URL is required by the schema only.
+  // Only the LLM settings are used; the schema requires a DATABASE_URL.
   const config = loadConfig({
     ...process.env,
     DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://unused@localhost/unused',

@@ -31,15 +31,13 @@ import type {
   SectionRewrite,
 } from './llm-client.js';
 
-/** Beta header for `fallbacks: "default"` (server-side retry on another model after a refusal). */
 export const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
-// Responses are streamed, so the SDK timeout only covers the wait for response headers; the job
-// worker's attempt deadline bounds the whole call. The queue owns retries with longer backoff.
+// Streamed: this bounds only the wait for headers; the worker's deadline bounds the call.
 const REQUEST_TIMEOUT_MS = 120_000;
 const SDK_MAX_RETRIES = 1;
 
-/** Output budget, thinking included. A response cut off at the limit is retried once, larger. */
+/** Thinking included; a response cut off at the limit is retried once with the larger budget. */
 interface TokenBudget {
   maxTokens: number;
   retryMaxTokens: number;
@@ -52,21 +50,13 @@ interface Request {
   system: string;
   content: string | BetaContentBlockParam[];
   effort: LlmEffort;
-  /** JSON schema for structured outputs; plain text when absent. */
   schema?: Record<string, unknown>;
 }
 
 const NOT_CONFIGURED_MESSAGE =
   'AI generation is not configured on the server (ANTHROPIC_API_KEY is missing).';
 
-/**
- * LlmClient backed by Claude. Structured calls use JSON structured outputs: forced tool use is
- * rejected by this model family, and thinking is always on, so depth is set with `effort`.
- *
- * `messages.parse()` is not used on purpose: it parses before the caller can look at
- * `stop_reason`, so a refused or truncated answer would surface as a generic parse error.
- * Instead the raw message is checked first, then parsed with the same zod schema.
- */
+/** Not messages.parse(): stop_reason is checked first, or a refusal looks like bad JSON. */
 export class AnthropicLlmClient implements LlmClient {
   private readonly client: Anthropic | null;
 
@@ -97,7 +87,6 @@ export class AnthropicLlmClient implements LlmClient {
           },
           { type: 'text', text: TRANSCRIBE_PROMPT },
         ],
-        // Verbatim transcription needs little reasoning.
         effort: 'low',
       },
       TRANSCRIBE_BUDGET,
@@ -163,7 +152,6 @@ export class AnthropicLlmClient implements LlmClient {
     return parsed.data;
   }
 
-  /** One logical call: retried once with a larger budget if the output was cut off. */
   private async generateText(
     request: Request,
     budget: TokenBudget,
@@ -214,7 +202,6 @@ export class AnthropicLlmClient implements LlmClient {
     const params: BetaMessageStreamParams = {
       model: this.config.model,
       max_tokens: maxTokens,
-      // Stable prefix: cached across calls (drafts, rewrites) for five minutes.
       system: [{ type: 'text', text: request.system, cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: request.content }],
       output_config: {
@@ -242,10 +229,7 @@ export class AnthropicLlmClient implements LlmClient {
   }
 }
 
-/**
- * Text of the answer. With server-side fallbacks a `fallback` block marks where another model
- * took over; only text after the last one belongs to the final answer.
- */
+/** Only text after the last `fallback` block belongs to the final answer. */
 export function finalText(message: Pick<BetaMessage, 'content'>): string {
   const lastFallback = message.content.findLastIndex((block) => block.type === 'fallback');
   return message.content

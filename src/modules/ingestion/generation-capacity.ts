@@ -13,11 +13,7 @@ export interface CapacityLimits {
   maxLiveJobs: number;
 }
 
-/**
- * Enforces "at most N CVs generating per user" inside the transaction that starts a new
- * generation. Locking the user row serialises concurrent starts of the same user, so two
- * parallel uploads cannot both see N-1 and both proceed.
- */
+/** Locks the user row, so two parallel starts cannot both see N-1 and proceed. */
 export async function assertGenerationCapacity(
   manager: EntityManager,
   userId: string,
@@ -39,7 +35,7 @@ export async function assertGenerationCapacity(
   }
 }
 
-/** Deployment-wide cap on queued + running jobs: bounds LLM spend and queue latency. */
+/** Deployment-wide: bounds LLM spend and queue latency. */
 export async function assertQueueCapacity(manager: EntityManager, maxLiveJobs: number) {
   if ((await countLiveJobs(manager)) >= maxLiveJobs) {
     throw new AppError(

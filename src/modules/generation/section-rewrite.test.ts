@@ -123,10 +123,8 @@ describe('applySectionRewrite', () => {
     expect(item.startDate).toBe('2019');
     expect(item.bullets[0]!.id).toBe('b-1');
     expect(item.bullets[1]!.id).toMatch(/^new-/);
-    // Everything else is untouched.
     expect(result.content.education).toEqual(before.education);
     expect(result.content.summary).toBe(before.summary);
-    // The new part is verified against source + answers.
     // The quote for "Cut costs by 30%" exists but says nothing about it.
     expect(result.review.flags.map((f) => [f.itemId, f.reason])).toEqual([
       [item.bullets[2]!.id, REASONS.noEvidence],

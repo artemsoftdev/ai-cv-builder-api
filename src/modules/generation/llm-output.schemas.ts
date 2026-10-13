@@ -1,8 +1,4 @@
-/*
- * Shapes Claude must return (structured outputs). Deliberately loose: the API ignores length
- * and number constraints, so every limit from docs/API.md is enforced afterwards by our own
- * sanitiser and the CV content schema. Descriptions are part of the prompt.
- */
+// Loose on purpose: the sanitiser enforces the limits. Descriptions are prompt text.
 import { z } from 'zod';
 import { QUESTION_SECTIONS } from '../cvs/cv.types.js';
 
@@ -67,8 +63,7 @@ const summary = z.object({
 });
 
 export const draftQuestionSchema = z.object({
-  // A plain string on purpose: the SDK's schema transform does not forward `enum` to the API,
-  // so a strict enum here could reject a whole draft. The sanitiser drops unknown sections.
+  // Not an enum: the SDK does not forward `enum`; the sanitiser drops unknown sections.
   section: field(`One of: ${QUESTION_SECTIONS.join(', ')}`),
   itemIndex: z
     .number()
@@ -89,7 +84,6 @@ export const draftCvSchema = z.object({
   questions: z.array(draftQuestionSchema).describe('At most 8 questions about gaps in the source'),
 });
 
-/** Section rewrites after the user answered a question; one schema per question section. */
 export const sectionRewriteSchemas = {
   contact: z.object(contactFields),
   summary: z.object({ headline, summary }),

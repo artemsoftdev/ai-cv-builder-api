@@ -15,7 +15,7 @@ export const signupBodySchema = z.object({
     .max(128, 'Password must be at most 128 characters'),
 });
 
-/** Login does not re-apply the signup length rule: any mismatch is just "invalid credentials". */
+// No signup length rule here: any mismatch is just "invalid credentials".
 export const loginBodySchema = z.object({
   email,
   password: z.string().min(1, 'Password is required').max(128, 'Password is too long'),

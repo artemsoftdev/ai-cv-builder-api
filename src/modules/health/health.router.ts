@@ -26,7 +26,6 @@ async function isDatabaseUp(dataSource: DataSource): Promise<boolean> {
   }
 }
 
-/** GET /api/health: public liveness/readiness probe (used by the compose healthcheck). */
 export function createHealthRouter(deps: { dataSource: DataSource; config: AppConfig }): Router {
   const router = Router();
   router.get('/', async (_req, res) => {

@@ -23,13 +23,11 @@ import {
 } from './normalize.js';
 import { extractNumbers } from './numbers.js';
 
-// Deterministic checks against the corpus: unsupported prose is FLAGGED for the user, contact
-// data and skills that are not in the corpus are REMOVED (they would print as facts).
+// Unsupported prose is flagged; contact data and skills not in the corpus are removed.
 
-/** Claimed supporting quotes per bullet id / 'summary', straight from the model. */
+/** Unverified quotes from the model, per bullet id or 'summary'. */
 export type ClaimedEvidence = Readonly<Record<string, readonly string[]>>;
 
-/** Share of an entry name's significant words that must appear in the corpus. */
 export const MIN_ENTITY_WORD_SHARE = 0.6;
 
 export const REASONS = {
@@ -49,7 +47,6 @@ export const REASONS = {
   skill: 'Skill not mentioned in your source',
 } as const;
 
-// Function words ignored when comparing entry names (English, German, French, Russian).
 const STOPWORDS = new Set(
   (
     'a an and at for in of on the to with ' +
@@ -59,7 +56,7 @@ const STOPWORDS = new Set(
   ).split(' '),
 );
 
-// Seniority words: one invented "Senior" would otherwise pass the word-share threshold.
+// One invented "Senior" would otherwise pass the word-share threshold.
 const SENIORITY_WORDS = new Set(
   (
     'junior senior lead principal staff head chief director manager vp cto cio ceo architect ' +
@@ -67,7 +64,7 @@ const SENIORITY_WORDS = new Set(
   ).split(' '),
 );
 
-// "worked on" easily becomes "Led"; a claim word needs a word of its family (or stem) in the corpus.
+// "worked on" easily becomes "Led": a claim needs its word family (or stem) in the corpus.
 const OWNERSHIP_FAMILIES: readonly { claims: string[]; support: string[]; stems?: string[] }[] = [
   { claims: ['led', 'leading'], support: ['lead', 'leads', 'leader', 'leadership'] },
   { claims: ['managed', 'managing'], support: ['manage', 'manages', 'manager', 'management'] },
@@ -111,7 +108,6 @@ const DEGREE_LEVELS: readonly (readonly string[])[] = [
 
 const NUMBER_LIKE_RE = /^\p{Sc}?[\d.,]+(?:[x×%kmb]|bn|mn|mln)?$/iu;
 
-/** Collects the review entries of one verification run. */
 class ReviewBuilder {
   readonly flags: ReviewFlag[] = [];
   readonly removed: RemovedClaim[] = [];
@@ -155,10 +151,6 @@ function supports(quote: string, claimWords: readonly string[]): boolean {
   return significantWords(quote).some((word) => claimWords.some((claim) => sameWord(word, claim)));
 }
 
-/**
- * Flags `itemId` unless a claimed quote occurs in the corpus and relates to `text`; records the
- * verified quotes. Text the user typed or confirmed needs no quote.
- */
 function checkEvidence(
   itemId: string,
   text: string,
@@ -192,10 +184,7 @@ function checkOwnershipClaims(
   });
 }
 
-/**
- * Names and technologies the text mentions: capitalised words that do not start a sentence,
- * acronyms, tokens mixing letters with digits or + # . /, and any term of `vocabulary`.
- */
+/** Mid-sentence capitals, acronyms, technical tokens and `vocabulary` terms. */
 export function namedTerms(text: string, vocabulary: readonly string[] = []): string[] {
   const terms: string[] = [];
   let sentenceStart = true;
@@ -252,7 +241,6 @@ function checkEntity(
   if (!mostlyInCorpus(value, corpus)) review.flag(itemId, REASONS.entity(label, value));
 }
 
-/** Like checkEntity, plus: no seniority word the source does not use ("Senior", "Lead"). */
 function checkJobTitle(
   label: string,
   title: string,
@@ -271,7 +259,6 @@ function checkJobTitle(
   }
 }
 
-/** A degree level ("Master", "PhD") needs the same level in the corpus, whatever the wording. */
 function checkDegreeLevel(degree: string, itemId: string, corpus: Corpus, review: ReviewBuilder) {
   for (const word of wordsOf(collapseAbbreviations(normalizeText(degree)))) {
     const family = DEGREE_LEVELS.find((level) => level.some((form) => sameWord(word, form)));
@@ -281,7 +268,6 @@ function checkDegreeLevel(degree: string, itemId: string, corpus: Corpus, review
   }
 }
 
-/** Contact fields that are not in the corpus are removed (they would be printed as facts). */
 export function verifyContact(
   contact: CvContent['contact'],
   corpus: Corpus,
@@ -314,7 +300,6 @@ export function verifyContact(
   return { contact: result, review: review.build() };
 }
 
-/** Summary: evidence, numbers, ownership verbs and named terms. Headline: a title the corpus backs. */
 export function verifySummary(
   content: Pick<CvContent, 'summary'> & { contact: Pick<CvContent['contact'], 'headline'> },
   claimed: ClaimedEvidence,
@@ -377,7 +362,6 @@ export function verifyEducationItem(
   return review.build();
 }
 
-/** Skills not named in the corpus are removed; groups left empty are dropped. */
 export function verifySkills(
   groups: readonly SkillGroup[],
   corpus: Corpus,
@@ -404,7 +388,6 @@ export function mergeReviews(reviews: readonly CvReview[]): CvReview {
   };
 }
 
-/** Verifies a whole CV; returns the content with unsupported contact data and skills removed. */
 export function verifyContent(
   content: CvContent,
   claimed: ClaimedEvidence,
@@ -425,15 +408,13 @@ export function verifyContent(
   return { content: verified, review };
 }
 
-/** Which review entries belong to one part of the CV (for re-verifying just that part). */
+/** The review entries of one part of the CV, replaced when that part is re-verified. */
 export interface ReviewScope {
-  /** Flag targets / evidence keys of the part (old and new ids). */
   targetIds: ReadonlySet<string>;
-  /** `RemovedClaim.field` prefixes of the part, e.g. 'contact' or 'skills'. */
+  /** `RemovedClaim.field` prefixes, e.g. 'contact'. */
   removedFields: readonly string[];
 }
 
-/** Replaces the part's flags, removed claims and evidence; everything else is kept. */
 export function replaceReviewPart(
   review: CvReview | null,
   scope: ReviewScope,

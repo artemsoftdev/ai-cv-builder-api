@@ -8,15 +8,12 @@ export interface RateLimitOptions {
 }
 
 export interface RateLimiterConfig {
-  /** Default: the client IP as Express sees it (see TRUST_PROXY). */
   key?: (req: Request) => string;
-  /** Only requests answered with 4xx/5xx count, e.g. failed logins. */
   countFailuresOnly?: boolean;
-  /** Only requests answered with 2xx/3xx count, e.g. accepted generations. */
   countSuccessesOnly?: boolean;
 }
 
-/** In-memory fixed-window limiter (single API process) answering 429 RATE_LIMITED. */
+/** In memory: per API process. */
 export function createRateLimiter(
   { limit, windowMs }: RateLimitOptions,
   { key, countFailuresOnly = false, countSuccessesOnly = false }: RateLimiterConfig = {},
@@ -29,7 +26,7 @@ export function createRateLimiter(
     keyGenerator: key ?? ((req) => ipKeyGenerator(req.ip ?? '')),
     skipSuccessfulRequests: countFailuresOnly,
     skipFailedRequests: countSuccessesOnly,
-    // An untrusted X-Forwarded-For is expected behind the Next.js rewrite (TRUST_PROXY=false).
+    // Expected behind the Next.js rewrite, which passes the client's header through.
     validate: { xForwardedForHeader: false },
     handler: (_req, _res, next) => {
       next(new AppError('RATE_LIMITED', 'Too many requests, please try again later'));
@@ -37,7 +34,6 @@ export function createRateLimiter(
   });
 }
 
-/** Normalised email from a credentials body; falls back to the IP for malformed bodies. */
 export function emailKey(req: Request): string {
   const email: unknown = (req.body as { email?: unknown } | undefined)?.email;
   return typeof email === 'string' && email.trim() !== ''

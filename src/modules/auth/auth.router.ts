@@ -11,7 +11,6 @@ export interface AuthRouterDeps {
   authService: AuthService;
   sessions: SessionService;
   requireAuth: RequestHandler;
-  /** Shared by signup and login: per client IP, then per email address. */
   credentialsRateLimits: RequestHandler[];
   cookieSecure: boolean;
 }
@@ -33,7 +32,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
     const credentials = parseInput(loginBodySchema, req.body);
     const previousToken = readSessionToken(req);
     const { user, session } = await authService.login(credentials);
-    // Replace, don't accumulate: a re-login from the same browser drops the old session.
+    // A re-login from the same browser replaces its session instead of adding one.
     if (previousToken) await sessions.revokeToken(previousToken);
     setSessionCookie(res, session.token, cookieSecure);
     res.status(200).json({ user: toUserDto(user) });

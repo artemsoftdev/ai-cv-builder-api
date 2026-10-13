@@ -2,23 +2,17 @@ import { sanitizeLine } from '../../shared/text.js';
 
 const MAX_NAME_CHARS = 100;
 const FALLBACK_NAME = 'CV';
-// Characters that are unsafe in file names on common systems or break the quoted header value.
 const UNSAFE_FILENAME_CHARS_RE = /[<>:"/\\|?*]/g;
-// Printable ASCII is everything from space to tilde.
 const NON_ASCII_RE = /[^ -~]/g;
 const COMBINING_MARKS_RE = /\p{M}/gu;
 
-/** "Jane Doe - Senior Backend Engineer": the download name, without extension. */
 export function cvFileBaseName(fullName: string, title: string): string {
   const parts = [fullName, title].map((part) => cleanName(part)).filter(Boolean);
   const unique = parts.filter((part, i) => parts.indexOf(part) === i);
   return cleanName(unique.join(' - ')) || FALLBACK_NAME;
 }
 
-/**
- * `attachment` header value with an ASCII `filename` for old clients and the exact UTF-8 name
- * in `filename*` (RFC 6266 / RFC 8187), which current browsers prefer.
- */
+/** ASCII `filename` for old clients, the exact UTF-8 name in `filename*` (RFC 8187). */
 export function attachmentDisposition(baseName: string, extension: string): string {
   const name = cleanName(baseName) || FALLBACK_NAME;
   const ascii = asciiFallback(name);
@@ -32,7 +26,6 @@ function cleanName(value: string): string {
   return trimEdges(Array.from(cleaned).slice(0, MAX_NAME_CHARS).join(''));
 }
 
-/** "Résumé Иван" -> "Resume": accents dropped, other non-ASCII removed. */
 function asciiFallback(name: string): string {
   const ascii = trimEdges(
     name
@@ -44,7 +37,6 @@ function asciiFallback(name: string): string {
   return /[A-Za-z0-9]/.test(ascii) ? ascii : FALLBACK_NAME;
 }
 
-/** Leading/trailing spaces, dots, dashes and underscores (hidden files, "- Title"). */
 function trimEdges(value: string): string {
   return value.replace(/^[\s._-]+|[\s._-]+$/g, '');
 }

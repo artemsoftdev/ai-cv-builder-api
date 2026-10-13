@@ -1,12 +1,11 @@
-// Numbers in normalised text, canonicalised so "1,000" == "1 000" == "1k", "40 %" == "40",
-// "eight" == "8". Units are ignored: the check is "this number appears in the source".
+// Canonical numbers: "1,000" == "1 000" == "1k", "40 %" == "40", "eight" == "8".
 
 const SPACE_SEPARATOR = '[ \\u00A0\\u202F]';
 const NUMBER = `\\d{1,3}(?:(?:[.,]|${SPACE_SEPARATOR})\\d{3})+(?!\\d)(?:[.,]\\d+)?|\\d+(?:[.,]\\d+)?`;
 const YEAR = '(?:19|20)\\d{2}';
 const DAY = '(?:0?[1-9]|[12]\\d|3[01])';
 const MONTH = '(?:0?[1-9]|1[0-2])';
-// 15.03.2019, 03.2019, 3/2019 and 2019-03(-15): only the year is a fact worth checking.
+// 15.03.2019, 03.2019, 3/2019, 2019-03: only the year is checked.
 const DATE = [
   `(?<![\\d.,/])(?:${DAY}[./])?${MONTH}[./](?<dmy>${YEAR})(?![\\d.,/]?\\d)`,
   `(?<![\\d.,/-])(?<iso>${YEAR})-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\\d|3[01]))?(?![\\d-])`,
@@ -81,7 +80,7 @@ const NUMBER_WORDS: Record<string, string> = {
 const WORD = `(?<![\\p{L}\\p{N}])(?<word>${Object.keys(NUMBER_WORDS).join('|')})(?![\\p{L}\\p{N}])`;
 const TOKEN_RE = new RegExp(`${DATE}|(?<number>${NUMBER})(?:${MAGNITUDE})?|${WORD}`, 'gu');
 
-// Contact data is not a metric: a phone's area code must not ground "30%".
+// A phone's area code must not ground "30%".
 const EMAIL_RE = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.\p{L}{2,}/gu;
 const URL_RE = /(?:https?:\/\/|www\.)\S+|[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+\/\S*/gu;
 const PHONE_RUN_RE = /\+?\d[\d\s()./-]{5,}\d/g;
@@ -91,7 +90,6 @@ const GROUPED_RE = /^\d{1,3}(?:[.,]\d{3})+$/;
 const GROUPED_WITH_DECIMALS_RE = /^(\d{1,3}(?:[.,]\d{3})+)[.,](\d+)$/;
 
 export interface NumberToken {
-  /** As written, for messages. */
   raw: string;
   canonical: string;
 }
@@ -121,7 +119,7 @@ function scaled(canonical: string, factor: number): string {
   return Number.isSafeInteger(Math.round(value)) ? String(value) : canonical;
 }
 
-/** A phone number, not a range of years or a grouped amount. */
+/** Not a range of years or a grouped amount. */
 export function isPhoneRun(run: string): boolean {
   const groups = run.split(/\D+/).filter(Boolean);
   const digits = groups.join('').length;

@@ -12,10 +12,6 @@ import type { GenerationDeps } from './generate-cv.handler.js';
 import { answerFacts } from './answer-facts.js';
 import { applySectionRewrite, sectionSnapshot } from './section-rewrite.js';
 
-/**
- * apply_answer: rewrites only the section (or entry) the question is about, re-verifies that
- * part against source + answers, and stores it with an optimistic version check.
- */
 export class ApplyAnswerHandler implements JobHandler {
   constructor(private readonly deps: GenerationDeps) {}
 
@@ -24,7 +20,6 @@ export class ApplyAnswerHandler implements JobHandler {
     if (!job.questionId) throw new PermanentError('INTERNAL', 'apply_answer job without question');
 
     const context = await repository.loadAnswerContext(job.cvId, job.questionId);
-    // CV or question deleted: the job row went with it (FK cascade).
     if (!context) throw new LeaseLostError(job.id);
     const { cv, question, appliedAnswers } = context;
     if (question.status !== 'applying' || question.answer === null) {
@@ -66,7 +61,6 @@ export class ApplyAnswerHandler implements JobHandler {
         content: applied.content,
         review,
       });
-      // Edits are rejected while the CV is busy, so this is a rare race: start over.
       if (!saved) throw new TransientError('CV changed while the answer was applied', 'INTERNAL');
     });
   }

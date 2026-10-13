@@ -1,8 +1,4 @@
-/*
- * Deterministic stand-ins for Claude, used by FakeLlmClient (keyless demo, end-to-end tests).
- * They only ever copy text from the source or the answer, so their output passes the
- * grounding verifier the same way a well-behaved model would.
- */
+// They only copy text from the source or the answer, like a well-behaved model.
 import type {
   DraftCv,
   DraftEducation,
@@ -30,7 +26,6 @@ const SKILLS_RE = /^(?:skills|technologies|tech stack|stack|tools)\s*:\s*(.+)$/i
 const BULLET_PREFIX_RE = /^[-•*–]\s*/;
 const NAME_RE = /^\p{Lu}[\p{L}'-]+(?: \p{Lu}[\p{L}'.-]*){1,3}$/u;
 
-/** Text used for "scanned" PDFs: the fake cannot read images. */
 export const FAKE_TRANSCRIPTION = `Alex Example
 alex@example.com
 Backend developer with 6 years of experience building APIs in Node.js and PostgreSQL.
@@ -43,7 +38,6 @@ function words(text: string): string[] {
   return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
-/** First `count` words of `text`, cut from the original so the quote stays verbatim. */
 function leadingQuote(text: string, count = 8): string {
   const match = new RegExp(`^\\s*(?:\\S+\\s+){0,${count - 1}}\\S+`).exec(text);
   return (match?.[0] ?? text).trim();
@@ -220,7 +214,6 @@ function heuristicQuestions(found: {
   return questions.slice(0, 8);
 }
 
-/** Folds the answer into the section by copying it verbatim. */
 export function heuristicRewrite(input: RewriteSectionInput): SectionRewrite {
   const answer = input.answer.trim();
   const quote = leadingQuote(answer);

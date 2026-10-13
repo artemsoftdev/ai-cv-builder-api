@@ -1,4 +1,3 @@
-/** Error codes and their HTTP statuses, exactly as listed in docs/API.md. */
 const STATUS_BY_CODE = {
   VALIDATION_ERROR: 400,
   UNAUTHORIZED: 401,
@@ -28,10 +27,7 @@ export interface ErrorBody {
   error: { code: ErrorCode; message: string; details?: Record<string, unknown> };
 }
 
-/**
- * An expected failure that maps to a contract error response. The message is shown to the
- * user, so it must never contain internals; anything that is not an AppError becomes 500.
- */
+/** The message is shown to the user, so it must never contain internals. */
 export class AppError extends Error {
   readonly status: number;
 
@@ -39,7 +35,6 @@ export class AppError extends Error {
     readonly code: ErrorCode,
     message: string,
     readonly details?: Record<string, unknown>,
-    /** Extra response headers, e.g. `Retry-After` on 429. */
     readonly headers?: Record<string, string>,
   ) {
     super(message);
