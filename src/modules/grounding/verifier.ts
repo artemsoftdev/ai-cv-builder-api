@@ -15,6 +15,7 @@ import {
 import type { Corpus } from './corpus.js';
 import {
   collapseAbbreviations,
+  containsPhrase,
   normalizePhrase,
   normalizeText,
   sameWord,
@@ -107,6 +108,7 @@ const DEGREE_LEVELS: readonly (readonly string[])[] = [
 ];
 
 const NUMBER_LIKE_RE = /^\p{Sc}?[\d.,]+(?:[x×%kmb]|bn|mn|mln)?$/iu;
+const ABBREVIATION_RE = /^(?:e\.g|i\.e|etc|vs|approx)$/i;
 
 class ReviewBuilder {
   readonly flags: ReviewFlag[] = [];
@@ -192,7 +194,12 @@ export function namedTerms(text: string, vocabulary: readonly string[] = []): st
     const atStart = sentenceStart;
     sentenceStart = /[.!?:;]["')\]]*$/.test(raw);
     const token = stripEdgePunctuation(raw).replace(/['’]s$/u, '');
-    if (Array.from(token).length < 2 || NUMBER_LIKE_RE.test(token) || !/\p{L}/u.test(token)) {
+    if (
+      Array.from(token).length < 2 ||
+      NUMBER_LIKE_RE.test(token) ||
+      ABBREVIATION_RE.test(token) ||
+      !/\p{L}/u.test(token)
+    ) {
       continue;
     }
     const technical = /\p{N}|[+#]|\p{L}[./]\p{L}/u.test(token);
@@ -202,7 +209,8 @@ export function namedTerms(text: string, vocabulary: readonly string[] = []): st
   const normalized = normalizeText(text);
   for (const term of vocabulary) {
     const phrase = normalizePhrase(term);
-    if (phrase.length >= 2 && ` ${normalized} `.includes(` ${phrase} `)) terms.push(term);
+    // Two-letter skills ("Go") are ordinary words too often to look for in prose.
+    if (phrase.length >= 3 && containsPhrase(normalized, phrase)) terms.push(term);
   }
   const seen = new Set<string>();
   return terms.filter((term) => {

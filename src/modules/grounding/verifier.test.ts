@@ -430,11 +430,12 @@ describe('named terms in prose', () => {
       title: 'Software engineer',
       startDate: '',
       endDate: '',
-      bullets: [{ id: 'b-1', text: 'Moved the billing service to kubernetes' }],
+      bullets: [{ id: 'b-1', text: 'Moved the billing service to kubernetes, e.g. for go-live.' }],
     });
     const review = verifyExperienceItem(item, { 'b-1': ['billing service'] }, java, [
       'Java',
       'Kubernetes',
+      'Go',
     ]);
     expect(reasonsFor(review, 'b-1')).toEqual([REASONS.terms(['Kubernetes'])]);
   });

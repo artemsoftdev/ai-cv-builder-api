@@ -84,3 +84,9 @@ export function sameWord(a: string, b: string): boolean {
   const shortest = Math.min(a.length, b.length);
   return shortest >= 4 && commonPrefixLength(a, b) >= Math.max(4, shortest - 2);
 }
+
+/** `phrase` occurs in `normalized` with no letter or digit on either side. */
+export function containsPhrase(normalized: string, phrase: string): boolean {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'u').test(normalized);
+}
