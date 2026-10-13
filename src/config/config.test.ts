@@ -13,7 +13,14 @@ describe('loadConfig', () => {
       trustProxy: 'loopback, linklocal, uniquelocal',
       cookieSecure: false,
       logLevel: 'info',
-      llm: { provider: 'anthropic', apiKey: undefined, model: 'claude-opus-5-5', effort: 'medium' },
+      llm: {
+        provider: 'anthropic',
+        apiKey: undefined,
+        model: 'claude-opus-5-5',
+        effort: 'medium',
+        fallbacks: true,
+        fakeDelayMs: 1500,
+      },
       worker: { enabled: true, concurrency: 2 },
     });
   });
@@ -34,11 +41,19 @@ describe('loadConfig', () => {
       LLM_PROVIDER: 'fake',
       ANTHROPIC_API_KEY: 'sk-ant-test',
       ANTHROPIC_EFFORT: 'high',
+      ANTHROPIC_FALLBACKS: 'false',
+      FAKE_LLM_DELAY_MS: '0',
     });
     expect(config.port).toBe(8080);
     expect(config.worker).toEqual({ enabled: false, concurrency: 4 });
     expect(config.cookieSecure).toBe(true);
-    expect(config.llm).toMatchObject({ provider: 'fake', apiKey: 'sk-ant-test', effort: 'high' });
+    expect(config.llm).toMatchObject({
+      provider: 'fake',
+      apiKey: 'sk-ant-test',
+      effort: 'high',
+      fallbacks: false,
+      fakeDelayMs: 0,
+    });
   });
 
   it.each([

@@ -19,7 +19,14 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     trustProxy: 'loopback',
     cookieSecure: false,
     logLevel: 'silent',
-    llm: { provider: 'fake', apiKey: undefined, model: 'claude-opus-5-5', effort: 'medium' },
+    llm: {
+      provider: 'fake',
+      apiKey: undefined,
+      model: 'claude-opus-5-5',
+      effort: 'medium',
+      fallbacks: false,
+      fakeDelayMs: 0,
+    },
     worker: { enabled: false, concurrency: 1 },
     ...overrides,
   };

@@ -1,6 +1,6 @@
 import supertest from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { browser, signedInUser, useTestApp } from '../helpers/app.js';
+import { browser, signedInUser, testConfig, useTestApp } from '../helpers/app.js';
 
 const ctx = useTestApp();
 
@@ -13,22 +13,11 @@ describe('GET /api/health', () => {
 });
 
 describe('health with a real provider', () => {
-  const withoutKey = useTestApp(
-    {},
-    {
-      llm: { provider: 'anthropic', apiKey: undefined, model: 'claude-opus-5-5', effort: 'medium' },
-    },
-  );
+  const anthropic = testConfig().llm;
+  const withoutKey = useTestApp({}, { llm: { ...anthropic, provider: 'anthropic' } });
   const withKey = useTestApp(
     {},
-    {
-      llm: {
-        provider: 'anthropic',
-        apiKey: 'sk-ant-test',
-        model: 'claude-opus-5-5',
-        effort: 'medium',
-      },
-    },
+    { llm: { ...anthropic, provider: 'anthropic', apiKey: 'sk-ant-test' } },
   );
 
   it('reports missing_key / configured', async () => {

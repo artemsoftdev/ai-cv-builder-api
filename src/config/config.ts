@@ -10,7 +10,12 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().trim().min(1).optional(),
   ANTHROPIC_MODEL: z.string().trim().min(1).default('claude-opus-5-5'),
   ANTHROPIC_EFFORT: z.enum(LLM_EFFORTS).default('medium'),
+  // Server-side refusal fallback (beta). On by default as Anthropic recommends; switch it off
+  // if the API ever rejects it together with structured outputs.
+  ANTHROPIC_FALLBACKS: z.stringbool().default(true),
   LLM_PROVIDER: z.enum(['anthropic', 'fake']).default('anthropic'),
+  // Artificial delay per pipeline step of the fake LLM, so the progress UI can be observed.
+  FAKE_LLM_DELAY_MS: z.coerce.number().int().min(0).max(60_000).default(1_500),
   WORKER_ENABLED: z.stringbool().default(true),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   COOKIE_SECURE: z.stringbool().default(false),
@@ -39,6 +44,10 @@ export interface AppConfig {
     apiKey: string | undefined;
     model: string;
     effort: LlmEffort;
+    /** Opt into the server-side refusal fallback (`fallbacks: "default"`). */
+    fallbacks: boolean;
+    /** FakeLlmClient only: delay per call, in milliseconds. */
+    fakeDelayMs: number;
   };
   worker: {
     enabled: boolean;
@@ -87,6 +96,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       apiKey: e.ANTHROPIC_API_KEY,
       model: e.ANTHROPIC_MODEL,
       effort: e.ANTHROPIC_EFFORT,
+      fallbacks: e.ANTHROPIC_FALLBACKS,
+      fakeDelayMs: e.FAKE_LLM_DELAY_MS,
     },
     worker: {
       enabled: e.WORKER_ENABLED,
