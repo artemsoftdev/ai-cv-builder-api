@@ -18,6 +18,7 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) 
   }
   const appError = toAppError(err);
   if (appError) {
+    if (appError.headers) res.set(appError.headers);
     res.status(appError.status).json(appError.toBody());
     return;
   }

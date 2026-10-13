@@ -39,6 +39,8 @@ export class AppError extends Error {
     readonly code: ErrorCode,
     message: string,
     readonly details?: Record<string, unknown>,
+    /** Extra response headers, e.g. `Retry-After` on 429. */
+    readonly headers?: Record<string, string>,
   ) {
     super(message);
     this.name = 'AppError';
