@@ -1,10 +1,11 @@
 import 'reflect-metadata';
 import type { Server } from 'node:http';
+import type { Express } from 'express';
 import { ConfigError, loadConfig, type AppConfig } from './config/config.js';
 import { runMigrations, waitForDatabase } from './db/bootstrap.js';
 import { createDataSource } from './db/data-source.js';
 import { createApp } from './http/app.js';
-import { createLogger } from './logger.js';
+import { createLogger, type Logger } from './logger.js';
 import { createJobHandlers } from './modules/generation/job-handlers.js';
 import { JobWorker } from './modules/jobs/worker.js';
 import { createLlmClient } from './modules/llm/create-llm-client.js';
@@ -26,6 +27,13 @@ function loadConfigOrExit(): AppConfig {
   }
 }
 
+/** Resolves once the port is bound; rejects on EADDRINUSE and similar. */
+function listen(app: Express, port: number): Promise<Server> {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, (err) => (err ? reject(err) : resolve(server)));
+  });
+}
+
 /** Stops accepting connections and waits for in-flight requests; idle keep-alives close now. */
 function closeServer(server: Server): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -34,9 +42,7 @@ function closeServer(server: Server): Promise<void> {
   });
 }
 
-async function main(): Promise<void> {
-  const config = loadConfigOrExit();
-  const logger = createLogger(config.logLevel);
+async function main(config: AppConfig, logger: Logger): Promise<void> {
   const dataSource = createDataSource({ url: config.databaseUrl, logger });
 
   // A broken image (fonts not copied) should fail now, not on the first PDF download.
@@ -47,13 +53,11 @@ async function main(): Promise<void> {
   await dataSource.initialize();
   await runMigrations(dataSource, logger);
 
-  const app = createApp({ config, logger, dataSource });
-  const server = app.listen(config.port, () => {
-    logger.info(
-      { port: config.port, llm: config.llm.provider, worker: config.worker.enabled },
-      'API listening',
-    );
-  });
+  const server = await listen(createApp({ config, logger, dataSource }), config.port);
+  logger.info(
+    { port: config.port, llm: config.llm.provider, worker: config.worker.enabled },
+    'API listening',
+  );
 
   // The worker runs in this process and shares the connection pool. With WORKER_ENABLED=false
   // jobs simply stay queued until a process with a worker picks them up.
@@ -99,16 +103,23 @@ async function main(): Promise<void> {
 
   process.on('SIGTERM', () => void shutdown('SIGTERM', 0));
   process.on('SIGINT', () => void shutdown('SIGINT', 0));
-  // A bug left a promise unhandled: state is unknown, so restart cleanly (jobs are lease-based
-  // and survive a restart) instead of limping on.
+  // A bug left a promise unhandled or an exception uncaught: state is unknown, so stop cleanly
+  // and let the container restart us (jobs are lease-based and survive a restart) instead of
+  // limping on. The forced-exit timer bounds a shutdown that hangs because of the same bug.
   process.on('unhandledRejection', (err) => {
     logger.fatal({ err }, 'Unhandled promise rejection');
     void shutdown('unhandledRejection', 1);
   });
+  process.on('uncaughtException', (err) => {
+    logger.fatal({ err }, 'Uncaught exception');
+    void shutdown('uncaughtException', 1);
+  });
 }
 
-main().catch((err: unknown) => {
-  // The logger may not exist yet (e.g. database unreachable during boot).
-  console.error('Fatal error during startup', err);
+const config = loadConfigOrExit();
+const logger = createLogger(config.logLevel);
+main(config, logger).catch((err: unknown) => {
+  // Database unreachable, migration failed, port taken, fonts missing...
+  logger.fatal({ err }, 'Fatal error during startup');
   process.exit(1);
 });
