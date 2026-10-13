@@ -1,0 +1,6 @@
+node_modules
+dist
+coverage
+package-lock.json
+# The API contract is mirrored byte-for-byte in the frontend repo.
+docs
