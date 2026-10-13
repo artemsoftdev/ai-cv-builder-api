@@ -155,7 +155,8 @@ The frontend repo runs the same browser tests against this repo's `main`.
   The exact rules, and what they miss, are in
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#keeping-the-ai-from-inventing-facts).
 - **PDF export** renders real, selectable text in an embedded font (Inter, Latin + Cyrillic)
-  with react-pdf; see `src/modules/pdf`.
+  with react-pdf, in a worker thread so an export never stalls other requests; see
+  `src/modules/pdf`.
 
 ## Layout
 
@@ -172,7 +173,7 @@ src/
   modules/llm/        LlmClient port: Claude (streamed structured outputs) and a fake
   modules/generation/ prompts, LLM output schemas, sanitiser, job handlers, retry/answer routes
   modules/grounding/  deterministic verifier
-  modules/pdf/        GET /api/cvs/:id/pdf: react-pdf template, fonts, download headers
+  modules/pdf/        GET /api/cvs/:id/pdf: react-pdf template, fonts, render worker, headers
   modules/health/     GET /api/health
   shared/             text sanitisation for untrusted strings
 assets/fonts/     Inter TTFs embedded into PDFs (SIL OFL 1.1)
@@ -194,7 +195,7 @@ test/
   and throughput far below a dedicated broker.
 - **Worker in the API process.** One container to run and one pool; `WORKER_ENABLED=false`
   allows a separate worker process later without code changes. CPU-heavy work that could
-  starve HTTP (PDF parsing) runs in a worker thread.
+  starve HTTP (PDF parsing and PDF rendering) runs in worker threads.
 - **Polling, not SSE/WebSockets.** Progress lives in the database, so a reload, a second
   device or an API restart need no reconnection logic; the cost is a request every ~1.5 s
   while a CV is busy.

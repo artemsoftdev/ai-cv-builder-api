@@ -5,6 +5,7 @@ browser ──► Next.js (web, :3000) ──rewrite /api/*──► Express API
                                                          │
                                                          ├─ in-process job worker (Postgres-backed queue)
                                                          ├─ PDF text extraction in a worker thread
+                                                         ├─ PDF rendering in a long-lived worker thread
                                                          └─ Anthropic API (Claude, streamed)
 ```
 
@@ -27,7 +28,7 @@ directory `../ai-cv-builder-front` (override with `WEB_CONTEXT`).
 | `modules/llm/` | `LlmClient` port; `AnthropicLlmClient` (streamed structured outputs) and `FakeLlmClient` (keyless demo, tests) |
 | `modules/generation/` | prompts, LLM output schemas, draft sanitiser, `generate_cv` and `apply_answer` handlers, section rewrites, answer facts, retry/answer routes |
 | `modules/grounding/` | deterministic verifier: corpus, normalisation, numbers, checks |
-| `modules/pdf/` | A4 export with `@react-pdf/renderer` and an embedded font |
+| `modules/pdf/` | A4 export with `@react-pdf/renderer` and an embedded font, rendered in a worker thread |
 
 ## Data model
 
@@ -178,8 +179,8 @@ source + answers + the user's confirmed facts:
 
 ## PDF export
 
-`GET /api/cvs/:id/pdf` renders the stored content with `@react-pdf/renderer` in the API process
-(no headless browser): a single-column A4 template, real text in the embedded Inter font
+`GET /api/cvs/:id/pdf` renders the stored content with `@react-pdf/renderer` (no headless
+browser): a single-column A4 template, real text in the embedded Inter font
 (`assets/fonts`, Latin + Cyrillic + Greek), so the PDF is selectable and ATS-readable. Empty
 fields, entries and sections are not printed; only http(s)/mailto links become clickable and
 bare domains get `https://`. Normal words are never hyphenated (the default hyphenator applies
@@ -189,8 +190,15 @@ Fonts are registered per document: fontkit caches glyph objects per loaded font,
 a Cyrillic document cached composite glyphs without their code points ("М" is drawn from Latin
 "M"), so later documents got a wrong ToUnicode map and, in some viewers, invisible letters.
 There is no page-number footer because react-pdf 4.9 crashes on `render`-prop text in
-documents of about ten pages, which the content limits allow. A typical CV renders in ~50 ms;
-react-pdf yields to the event loop while rendering. Exports are rate-limited per user.
+documents of about ten pages, which the content limits allow. Exports are rate-limited per
+user.
+
+Rendering runs in one long-lived worker thread (`PdfRenderer`). In the API thread react-pdf only
+yields to timers: a 300-500 ms render (several seconds on a loaded host) held back every other
+request, autosaves and progress polls included, which the browser tests surfaced. The worker
+is started on the first export (loading react-pdf takes about a second), renders concurrently,
+has a heap limit and a 20 s deadline per export; on a timeout or crash it is terminated, the
+exports in it fail with `500` and the next export starts a new worker.
 
 ## Security notes
 
