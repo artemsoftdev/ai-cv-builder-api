@@ -101,6 +101,23 @@ invented facts, a `TransientError`, a call that waits until the test lets it fin
 Shared code lives in `test/fixtures` (sample content, database rows, PDF files),
 `test/helpers` (app, worker, e2e harness, PDF inspection) and `test/setup`.
 
+Browser tests of the whole stack (Playwright, desktop and phone Chromium) live in the frontend
+repo's `e2e/` and run against this repo's `docker compose` stack with `LLM_PROVIDER=fake`.
+
+## CI
+
+GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) on pushes to `main` and
+on pull requests. No secrets: Claude is never called.
+
+| Job                               | What runs                                                                                                                                                                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lint-typecheck-unit`             | lint, typecheck, Prettier check, unit tests, `tsc` build                                                                                                                                                                  |
+| `integration-e2e`                 | integration and e2e projects; testcontainers starts Postgres on the runner's Docker                                                                                                                                       |
+| `docker`                          | builds the API image                                                                                                                                                                                                      |
+| `fullstack-e2e` (after the first) | checks out the frontend's `main` next to this repo, writes `.env` from `.env.example` with the fake LLM, `docker compose up --wait`, then the frontend's Playwright suite; on failure the report, traces and compose logs |
+
+The frontend repo runs the same browser tests against this repo's `main`.
+
 ## Configuration
 
 | Variable                                              | Default           | Meaning                                                                                                                                                                                           |
