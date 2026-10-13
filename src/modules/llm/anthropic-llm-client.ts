@@ -146,10 +146,9 @@ export class AnthropicLlmClient implements LlmClient {
     let json: unknown;
     try {
       json = JSON.parse(text);
-    } catch (err) {
-      throw new PermanentError('LLM_INVALID_OUTPUT', 'Structured output is not valid JSON', {
-        cause: err,
-      });
+    } catch {
+      // No `cause`: V8's SyntaxError quotes the input, i.e. CV content, and causes are logged.
+      throw new PermanentError('LLM_INVALID_OUTPUT', 'Structured output is not valid JSON');
     }
     const parsed = schema.safeParse(json);
     if (!parsed.success) {
