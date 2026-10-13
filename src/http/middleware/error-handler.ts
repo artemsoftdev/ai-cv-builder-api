@@ -29,6 +29,10 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, next) 
 
 function toAppError(err: unknown): AppError | null {
   if (err instanceof AppError) return err;
+  // The router decodes path params and throws a URIError on bad escapes ("/api/cvs/%E0%A4").
+  if (err instanceof URIError) {
+    return validationError([{ path: '', message: 'Malformed URL encoding' }]);
+  }
   if (!isHttpError(err)) return null;
   // body-parser errors carry a `type`; see https://github.com/expressjs/body-parser#errors
   switch (err.type) {

@@ -48,6 +48,17 @@ describe('HTTP hardening', () => {
     expect(res.body).toEqual({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
   });
 
+  it('maps a malformed percent-encoded path to 400, not 500', async () => {
+    const { agent } = await signedInUser(ctx.app);
+    const res = await agent.get('/api/cvs/%E0%A4%A');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toEqual({
+      code: 'VALIDATION_ERROR',
+      message: expect.any(String),
+      details: { issues: [{ path: '', message: 'Malformed URL encoding' }] },
+    });
+  });
+
   it('maps malformed JSON to 400 VALIDATION_ERROR', async () => {
     const res = await browser(ctx.app)
       .post('/api/auth/login')
