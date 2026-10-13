@@ -11,6 +11,7 @@ import { LeaseLostError, PermanentError, type JobFailure } from '../jobs/job-err
 import type { ClaimedJob, JobContext, JobHandler } from '../jobs/job.types.js';
 import type { LlmClient } from '../llm/llm-client.js';
 import { sanitizeDraft } from './draft-sanitizer.js';
+import { withGapQuestions } from './gap-questions.js';
 import type { GenerationRepository } from './generation.repository.js';
 import { NO_READABLE_TEXT } from './prompts.js';
 
@@ -62,13 +63,15 @@ export class GenerateCvHandler implements JobHandler {
       sanitized.claimedEvidence,
       new Corpus(sourceText),
     );
+    const questions = withGapQuestions(content, sanitized.questions, sourceText);
     logger.info(
       {
         cvId: cv.id,
         experience: content.experience.length,
         flags: review.flags.length,
         removed: review.removed.length,
-        questions: sanitized.questions.length,
+        modelQuestions: sanitized.questions.length,
+        questions: questions.length,
       },
       'CV draft verified',
     );
@@ -77,7 +80,7 @@ export class GenerateCvHandler implements JobHandler {
       repository.saveGenerated(manager, cv.id, {
         content,
         review,
-        questions: sanitized.questions,
+        questions,
       }),
     );
   }

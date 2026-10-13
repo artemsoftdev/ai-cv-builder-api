@@ -151,7 +151,8 @@ The frontend repo runs the same browser tests against this repo's `main`.
 - **Claude rephrases; code checks.** The draft cites evidence quotes. A deterministic verifier
   checks quotes, numbers, named terms, titles, degrees, ownership verbs, contact data and
   skills against the source, the user's answers and what the user typed; it flags or removes
-  what it cannot find. Gaps become questions whose answers rewrite only the affected section.
+  what it cannot find. Gaps become questions (Claude's, plus a deterministic safety net for
+  structural gaps) whose answers rewrite only the affected section.
   The exact rules, and what they miss, are in
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#keeping-the-ai-from-inventing-facts).
 - **PDF export** renders real, selectable text in an embedded font (Inter, Latin + Cyrillic)

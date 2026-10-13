@@ -81,7 +81,10 @@ Entities declare every column type explicitly because decorator metadata is not 
 6. `verifying`: the draft is sanitised (untrusted output: control and invisible characters
    stripped, lengths clamped at a word boundary with "…", our own ids, unsafe links dropped,
    experience sorted by relevance in bands of 10 so near-equal scores keep the model's
-   chronological order) and checked by the deterministic verifier (below).
+   chronological order) and checked by the deterministic verifier (below). The model now and
+   then returns no questions at all, so structural gaps it did not ask about (missing or
+   removed email, no phone or link, an entry without dates or bullets, no education or skills)
+   are added as template questions in the source language (`gap-questions.ts`).
 7. Content, review, questions, `status=ready`, `stage=done` and the job's `succeeded` status
    are written in **one transaction** whose first statement locks the job row and checks the
    lease.

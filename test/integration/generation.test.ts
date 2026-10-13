@@ -165,8 +165,11 @@ describe('POST /api/cvs with text', () => {
       ['skills', 'Kubernetes'],
     ]);
     expect(cv.review!.evidence[exp.bullets[0]!.id]).toEqual(['Built the billing service']);
+    // Model question first, then gaps it did not cover: the removed email and missing education.
     expect(cv.questions).toEqual([
       expect.objectContaining({ section: 'experience', itemId: exp.id, status: 'open' }),
+      expect.objectContaining({ section: 'contact', itemId: null, status: 'open' }),
+      expect.objectContaining({ section: 'education', itemId: null, status: 'open' }),
     ]);
   });
 
