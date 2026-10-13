@@ -36,6 +36,7 @@ export const REASONS = {
   number: (raw: string) => `Number "${raw}" does not appear in your source`,
   entity: (label: string, value: string) => `${label} "${value}" was not found in your source`,
   seniority: (word: string) => `Title says "${word}", which your source does not`,
+  ownership: (word: string) => `Says "${word}", which your source does not`,
   email: 'Email address not found in your source',
   phone: 'Phone number not found in your source',
   link: 'Link not found in your source',
@@ -60,6 +61,32 @@ const SENIORITY_WORDS = new Set(
     'junior senior lead principal staff head chief director manager vp cto cio ceo architect ' +
     'младший старший ведущий главный руководитель директор'
   ).split(' '),
+);
+
+/*
+ * Ownership verbs: "worked on the billing rewrite" easily becomes "Led the billing rewrite",
+ * which neither evidence quotes nor the number check catch. A claim word is accepted when any
+ * word of its family occurs in the corpus ("team lead" supports "Led").
+ */
+const OWNERSHIP_FAMILIES: readonly { claims: string[]; support: string[] }[] = [
+  // `claims` trigger the check ("lead" or "direct" alone are too often nouns or adjectives);
+  // `support` are further words that back a claim up.
+  { claims: ['led', 'leading'], support: ['lead', 'leads', 'leader', 'leadership'] },
+  { claims: ['managed', 'managing'], support: ['manage', 'manages', 'manager', 'management'] },
+  { claims: ['headed'], support: ['head'] },
+  { claims: ['directed', 'directing'], support: ['director'] },
+  { claims: ['supervised', 'supervising'], support: ['supervise', 'supervisor'] },
+  { claims: ['oversaw', 'overseeing'], support: ['oversee', 'oversees'] },
+  { claims: ['spearheaded', 'spearheading'], support: ['spearhead'] },
+  { claims: ['architected'], support: ['architect'] },
+  { claims: ['руководил', 'руководила'], support: ['руководитель', 'руководство'] },
+  { claims: ['возглавлял', 'возглавляла'], support: ['возглавить'] },
+  { claims: ['управлял', 'управляла'], support: ['управление'] },
+];
+const OWNERSHIP_CLAIMS = new Map(
+  OWNERSHIP_FAMILIES.flatMap(({ claims, support }) =>
+    claims.map((claim) => [claim, [...claims, ...support]] as const),
+  ),
 );
 
 /** Collects the review entries of one verification run. */
@@ -112,6 +139,20 @@ function checkEvidence(
   const verified = [...new Set(claimed ?? [])].filter((quote) => corpus.hasQuote(quote));
   if (verified.length === 0) review.flag(itemId, REASONS.noEvidence);
   else review.evidence[itemId] = verified;
+}
+
+function checkOwnershipClaims(
+  text: string,
+  itemId: string,
+  corpus: Corpus,
+  review: ReviewBuilder,
+): void {
+  for (const word of new Set(wordsOf(normalizeText(text)))) {
+    const family = OWNERSHIP_CLAIMS.get(word);
+    if (family && !family.some((form) => corpus.hasWord(form))) {
+      review.flag(itemId, REASONS.ownership(word));
+    }
+  }
 }
 
 function checkEntity(
@@ -180,6 +221,7 @@ export function verifySummary(
   if (content.summary) {
     checkEvidence(SUMMARY_TARGET_ID, claimed[SUMMARY_TARGET_ID], corpus, review);
     checkNumbers(content.summary, SUMMARY_TARGET_ID, corpus, review);
+    checkOwnershipClaims(content.summary, SUMMARY_TARGET_ID, corpus, review);
   }
   checkNumbers(content.contact.headline, HEADLINE_TARGET_ID, corpus, review);
   return review.build();
@@ -198,6 +240,7 @@ export function verifyExperienceItem(
   for (const bullet of item.bullets) {
     checkEvidence(bullet.id, claimed[bullet.id], corpus, review);
     checkNumbers(bullet.text, bullet.id, corpus, review);
+    checkOwnershipClaims(bullet.text, bullet.id, corpus, review);
   }
   return review.build();
 }

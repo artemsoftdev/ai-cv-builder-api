@@ -162,6 +162,47 @@ describe('numbers', () => {
   });
 });
 
+describe('ownership claims', () => {
+  it('flags an ownership verb the source does not support', () => {
+    const item = experience({
+      bullets: [{ id: 'b-1', text: 'Led the billing service rewrite in Go' }],
+    });
+    const review = verifyExperienceItem(item, { 'b-1': ['Built the billing service'] }, corpus);
+    expect(reasonsFor(review, 'b-1')).toEqual([REASONS.ownership('led')]);
+
+    const summary = verifySummary(
+      { summary: 'Backend engineer who managed payments.', contact: { headline: '' } },
+      { summary: ['Backend engineer with 8 years'] },
+      corpus,
+    );
+    expect(reasonsFor(summary, 'summary')).toEqual([REASONS.ownership('managed')]);
+  });
+
+  it('accepts it when the source or an answer uses the same word family', () => {
+    const item = experience({ bullets: [{ id: 'b-1', text: 'Led the billing service team' }] });
+    const evidence = { 'b-1': ['Built the billing service'] };
+    expect(
+      verifyExperienceItem(
+        item,
+        evidence,
+        new Corpus(`${SOURCE}
+Team lead`),
+      ).flags,
+    ).toEqual([]);
+    const answered = new Corpus(SOURCE, ['I led the billing team']);
+    expect(verifyExperienceItem(item, evidence, answered).flags).toEqual([]);
+  });
+
+  it('does not treat nouns like "lead" as claims', () => {
+    const item = experience({
+      bullets: [{ id: 'b-1', text: 'Built the billing service lead form' }],
+    });
+    expect(
+      verifyExperienceItem(item, { 'b-1': ['Built the billing service'] }, corpus).flags,
+    ).toEqual([]);
+  });
+});
+
 describe('entries', () => {
   it('flags a company or title that is not in the source', () => {
     const review = verifyExperienceItem(
@@ -296,7 +337,11 @@ describe('corpus boundaries', () => {
     const answers = ['Yes'];
     const item = experience({ bullets: [{ id: 'b-9', text: 'Led a team of 5 engineers' }] });
     const review = verifyExperienceItem(item, { 'b-9': [question] }, new Corpus(SOURCE, answers));
-    expect(reasonsFor(review, 'b-9')).toEqual([REASONS.noEvidence, REASONS.number('5')]);
+    expect(reasonsFor(review, 'b-9')).toEqual([
+      REASONS.noEvidence,
+      REASONS.number('5'),
+      REASONS.ownership('led'),
+    ]);
   });
 
   it('works for Cyrillic sources', () => {
