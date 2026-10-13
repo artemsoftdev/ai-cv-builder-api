@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-typecheck-unit:
+    name: Lint, typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm run test:unit
+      - run: npm run build
+
+  integration-e2e:
+    name: Integration and API e2e tests (Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration
+      - run: npm run test:e2e
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build --tag ai-cv-builder-api:ci .
+
+  fullstack-e2e:
+    name: Full-stack browser tests
+    needs: lint-typecheck-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: ai-cv-builder-api
+      - uses: actions/checkout@v7
+        with:
+          repository: artemsoftdev/ai-cv-builder-front
+          ref: main
+          path: ai-cv-builder-front
+      # Fake LLM: no secrets needed. 1500 ms keeps a generation running through a page reload.
+      - name: Write .env
+        working-directory: ai-cv-builder-api
+        run: |
+          cp .env.example .env
+          sed -i -e 's/^LLM_PROVIDER=.*/LLM_PROVIDER=fake/' -e 's/^FAKE_LLM_DELAY_MS=.*/FAKE_LLM_DELAY_MS=1500/' .env
+      - name: Start the stack
+        working-directory: ai-cv-builder-api
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ai-cv-builder-front/package-lock.json
+      - name: Install Playwright
+        working-directory: ai-cv-builder-front
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Run Playwright
+        working-directory: ai-cv-builder-front
+        run: npm run test:e2e
+      - name: Stack logs
+        if: failure()
+        working-directory: ai-cv-builder-api
+        run: docker compose logs --no-color
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            ai-cv-builder-front/playwright-report
+            ai-cv-builder-front/test-results
+          retention-days: 14
+      - name: Stop the stack
+        if: always()
+        working-directory: ai-cv-builder-api
+        run: docker compose down -v
