@@ -17,9 +17,16 @@ const REDACTED_PATHS = [
   '*.apiKey',
   'llm.apiKey',
   '*.llm.apiKey',
-  // TypeORM's QueryFailedError carries the statement's parameters: CV content, source text,
-  // password and session-token hashes. The SQL text and the driver's error code stay.
+  // QueryFailedError carries the statement's parameters, and Postgres puts row values into
+  // `detail`/`where` (CV content, source text, emails). The SQL text and error code stay.
   'err.parameters',
+  'err.detail',
+  'err.where',
+  'err.driverError',
+  'err.cause.parameters',
+  'err.cause.detail',
+  'err.cause.where',
+  'err.cause.driverError',
 ];
 
 /** `destination` defaults to stdout; tests pass a stream to inspect the output. */

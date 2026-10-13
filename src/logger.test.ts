@@ -45,4 +45,24 @@ describe('createLogger', () => {
     });
     expect(JSON.stringify(entry)).not.toContain('private CV text');
   });
+
+  it('drops row values that Postgres puts into constraint error details', () => {
+    const { logger, entries } = capture();
+    const driverError = Object.assign(new Error('violates check constraint'), {
+      detail: 'Failing row contains (cv-id, {"summary": "private CV text"})',
+    });
+    const err = Object.assign(new Error('violates check constraint'), {
+      code: '23514',
+      constraint: 'cvs_ready_has_content_chk',
+      detail: driverError.detail,
+      where: 'SQL statement "UPDATE cvs ..." with private CV text',
+      driverError,
+    });
+    logger.error({ err: new Error('job failed', { cause: err }) }, 'Job failed');
+    logger.error({ err }, 'Unhandled error');
+
+    const output = JSON.stringify(entries());
+    expect(output).not.toContain('private CV text');
+    expect(output).toContain('cvs_ready_has_content_chk');
+  });
 });
