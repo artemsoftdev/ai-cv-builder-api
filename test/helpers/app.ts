@@ -11,6 +11,8 @@ import type { UserDto } from '../../src/modules/auth/auth.types.js';
 
 export const DEFAULT_PASSWORD = 'correct horse battery staple';
 
+export const NO_LIMIT = { limit: 10_000, windowMs: 60_000 };
+
 export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     nodeEnv: 'test',
@@ -52,8 +54,11 @@ export function useTestApp(
     ctx.dataSource = await createDataSource({ url: config.databaseUrl, poolSize: 4 }).initialize();
     ctx.app = createApp(
       { config, logger: createLogger('silent'), dataSource: ctx.dataSource },
-      // Tests sign up far more often than a human would; the limiter has its own test.
-      { credentialsRateLimit: { limit: 10_000, windowMs: 60_000 }, ...options },
+      {
+        credentialsRateLimit: NO_LIMIT,
+        accountRateLimit: NO_LIMIT,
+        ...options,
+      },
     );
   });
 

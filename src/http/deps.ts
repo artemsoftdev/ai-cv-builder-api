@@ -3,11 +3,6 @@ import type { AppConfig } from '../config/config.js';
 import type { Logger } from '../logger.js';
 import type { RateLimitOptions } from './middleware/rate-limit.js';
 
-/**
- * Process-wide dependencies handed to createApp. Extend this (rather than importing
- * singletons) when adding collaborators such as the LLM client or the job queue, so tests can
- * pass fakes.
- */
 export interface AppDeps {
   config: AppConfig;
   logger: Logger;
@@ -16,27 +11,31 @@ export interface AppDeps {
 
 /** Knobs that tests override; production uses the defaults. */
 export interface AppOptions {
-  /** Signup + login budget per client IP. Default: 20 requests / 15 minutes. */
+  /** Signup + login per client IP; one shared bucket behind Next.js unless TRUST_PROXY names a rewriting proxy. */
   credentialsRateLimit?: RateLimitOptions;
-  /** CV creations + retries per user (each one costs LLM calls). Default: 10 / hour. */
+  /** Failed signups + logins per email address. */
+  accountRateLimit?: RateLimitOptions;
+  /** Accepted CV creations + retries per user. */
   generationRateLimit?: RateLimitOptions;
-  /** Answers per user. Default: 60 / hour. */
+  /** Accepted answers per user. */
   answerRateLimit?: RateLimitOptions;
-  /** CVs a user may have generating at the same time. Default: 3. */
+  /** CVs a user may have generating at the same time. */
   maxActiveGenerations?: number;
-  /** PDF exports per user (rendering is CPU work in the API process). Default: 30 / 10 minutes. */
   pdfRateLimit?: RateLimitOptions;
 }
 
-const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
 
 export const DEFAULT_CREDENTIALS_RATE_LIMIT: RateLimitOptions = {
-  limit: 20,
-  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  windowMs: 15 * MINUTE_MS,
 };
+
+export const DEFAULT_ACCOUNT_RATE_LIMIT: RateLimitOptions = { limit: 10, windowMs: 15 * MINUTE_MS };
 
 export const DEFAULT_GENERATION_RATE_LIMIT: RateLimitOptions = { limit: 10, windowMs: HOUR_MS };
 
 export const DEFAULT_ANSWER_RATE_LIMIT: RateLimitOptions = { limit: 60, windowMs: HOUR_MS };
 
-export const DEFAULT_PDF_RATE_LIMIT: RateLimitOptions = { limit: 30, windowMs: 10 * 60 * 1000 };
+export const DEFAULT_PDF_RATE_LIMIT: RateLimitOptions = { limit: 30, windowMs: 10 * MINUTE_MS };

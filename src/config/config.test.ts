@@ -10,7 +10,7 @@ describe('loadConfig', () => {
       nodeEnv: 'development',
       port: 4000,
       databaseUrl: DATABASE_URL,
-      trustProxy: 'loopback, linklocal, uniquelocal',
+      trustProxy: false,
       cookieSecure: false,
       logLevel: 'info',
       llm: {

@@ -19,14 +19,9 @@ const envSchema = z.object({
   WORKER_ENABLED: z.stringbool().default(true),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   COOKIE_SECURE: z.stringbool().default(false),
-  // Passed to Express "trust proxy". The browser reaches the API through the Next.js rewrite,
-  // so the client IP (used by rate limits) comes from X-Forwarded-For set by that hop.
-  TRUST_PROXY: z
-    .string()
-    .trim()
-    .min(1)
-    .default('loopback, linklocal, uniquelocal')
-    .transform(parseTrustProxy),
+  // Express "trust proxy". The Next.js rewrite forwards the client's X-Forwarded-For unchanged,
+  // so it is only trustworthy behind an edge proxy that overwrites it.
+  TRUST_PROXY: z.string().trim().min(1).default('false').transform(parseTrustProxy),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

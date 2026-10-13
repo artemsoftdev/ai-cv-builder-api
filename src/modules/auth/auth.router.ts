@@ -11,16 +11,16 @@ export interface AuthRouterDeps {
   authService: AuthService;
   sessions: SessionService;
   requireAuth: RequestHandler;
-  /** Shared by signup and login (one budget for both). */
-  credentialsRateLimit: RequestHandler;
+  /** Shared by signup and login: per client IP, then per email address. */
+  credentialsRateLimits: RequestHandler[];
   cookieSecure: boolean;
 }
 
 export function createAuthRouter(deps: AuthRouterDeps): Router {
-  const { authService, sessions, requireAuth, credentialsRateLimit, cookieSecure } = deps;
+  const { authService, sessions, requireAuth, credentialsRateLimits, cookieSecure } = deps;
   const router = Router();
 
-  router.post('/signup', credentialsRateLimit, async (req, res) => {
+  router.post('/signup', ...credentialsRateLimits, async (req, res) => {
     const credentials = parseInput(signupBodySchema, req.body);
     const previousToken = readSessionToken(req);
     const { user, session } = await authService.signup(credentials);
@@ -29,7 +29,7 @@ export function createAuthRouter(deps: AuthRouterDeps): Router {
     res.status(201).json({ user: toUserDto(user) });
   });
 
-  router.post('/login', credentialsRateLimit, async (req, res) => {
+  router.post('/login', ...credentialsRateLimits, async (req, res) => {
     const credentials = parseInput(loginBodySchema, req.body);
     const previousToken = readSessionToken(req);
     const { user, session } = await authService.login(credentials);

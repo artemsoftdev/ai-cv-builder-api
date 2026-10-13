@@ -7,12 +7,11 @@ import { PermanentError } from '../../src/modules/jobs/job-errors.js';
 import type { JobWorker } from '../../src/modules/jobs/worker.js';
 import { FakeLlmClient } from '../../src/modules/llm/fake-llm-client.js';
 import { FAKE_TRANSCRIPTION } from '../../src/modules/llm/fake-heuristics.js';
-import { signedInUser, useTestApp, type Browser } from '../helpers/app.js';
+import { NO_LIMIT, signedInUser, useTestApp, type Browser } from '../helpers/app.js';
 import { createCv, createJob, createQuestion } from '../helpers/fixtures.js';
 import { makePdf, makeScannedPdf } from '../helpers/pdf.js';
 import { createTestWorker } from '../helpers/worker.js';
 
-const NO_LIMIT = { limit: 10_000, windowMs: 60_000 };
 const ctx = useTestApp({ generationRateLimit: NO_LIMIT, answerRateLimit: NO_LIMIT });
 
 const SOURCE = `Jane Doe
@@ -234,6 +233,30 @@ describe('POST /api/cvs with text', () => {
 
     await worker.drain();
     expect((await postText(me.agent, SOURCE)).status).toBe(202);
+  });
+});
+
+describe('generation budget', () => {
+  const limited = useTestApp({ generationRateLimit: { limit: 2, windowMs: 60_000 } });
+
+  it('counts only accepted starts, shared by create and retry', async () => {
+    const { agent, user } = await signedInUser(limited.app);
+    expect((await postText(agent, 'Too short.')).status).toBe(422);
+    expect((await postText(agent, 'Still too short.')).status).toBe(422);
+    expect((await postText(agent, SOURCE)).status).toBe(202);
+
+    const failed = await createCv(limited.dataSource, user.id, {
+      status: 'failed',
+      content: null,
+      review: null,
+      errorCode: 'LLM_UNAVAILABLE',
+    });
+    expect((await agent.post(`/api/cvs/${failed.id}/retry`)).status).toBe(202);
+
+    const over = await postText(agent, SOURCE);
+    expect(over.status).toBe(429);
+    expect(over.body.error.code).toBe('RATE_LIMITED');
+    expect(Number(over.headers['retry-after'])).toBeGreaterThan(0);
   });
 });
 

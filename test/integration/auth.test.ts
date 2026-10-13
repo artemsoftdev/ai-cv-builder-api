@@ -218,3 +218,57 @@ describe('rate limiting of signup + login', () => {
     expect((await agent.get('/api/auth/me')).status).toBe(200);
   });
 });
+
+describe('rate limiting with the default TRUST_PROXY=false', () => {
+  const limited = useTestApp(
+    { credentialsRateLimit: { limit: 2, windowMs: 60_000 } },
+    { trustProxy: false },
+  );
+
+  it('ignores a client-supplied X-Forwarded-For', async () => {
+    const login = (ip: string) =>
+      browser(limited.app)
+        .post('/api/auth/login')
+        .set('X-Forwarded-For', ip)
+        .send({ email: uniqueEmail(), password: DEFAULT_PASSWORD });
+    expect((await login('1.1.1.1')).status).toBe(401);
+    expect((await login('2.2.2.2')).status).toBe(401);
+    expect((await login('3.3.3.3')).status).toBe(429);
+  });
+});
+
+describe('per-account rate limiting', () => {
+  // trustProxy 'loopback' honours X-Forwarded-For, i.e. the client can rotate its apparent IP.
+  const limited = useTestApp({ accountRateLimit: { limit: 2, windowMs: 60_000 } });
+
+  it('caps failed attempts per email even when the client rotates its IP', async () => {
+    const { user } = await signedInUser(limited.app);
+    const attempt = (ip: string, password: string, email = user.email) =>
+      browser(limited.app)
+        .post('/api/auth/login')
+        .set('X-Forwarded-For', ip)
+        .send({ email, password });
+
+    expect((await attempt('1.1.1.1', 'wrong password 1')).status).toBe(401);
+    expect((await attempt('2.2.2.2', 'wrong password 2')).status).toBe(401);
+    const blocked = await attempt('3.3.3.3', DEFAULT_PASSWORD);
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error.code).toBe('RATE_LIMITED');
+    // The same address differently cased or padded is the same account.
+    expect(
+      (await attempt('4.4.4.4', DEFAULT_PASSWORD, ` ${user.email.toUpperCase()}`)).status,
+    ).toBe(429);
+    // Other accounts are unaffected.
+    expect((await attempt('3.3.3.3', 'wrong', uniqueEmail())).status).toBe(401);
+  });
+
+  it('does not count successful logins', async () => {
+    const { user } = await signedInUser(limited.app);
+    for (let i = 0; i < 4; i++) {
+      const res = await browser(limited.app)
+        .post('/api/auth/login')
+        .send({ email: user.email, password: DEFAULT_PASSWORD });
+      expect(res.status).toBe(200);
+    }
+  });
+});
