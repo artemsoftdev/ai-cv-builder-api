@@ -14,6 +14,8 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "sourceMap": true,
+    // PDF templates (src/modules/pdf/*.tsx) are React components rendered by @react-pdf/renderer.
+    "jsx": "react-jsx",
 
     // TypeORM uses legacy decorators. Decorator metadata is intentionally NOT emitted:
     // tsx/vitest (esbuild) cannot emit it, so every column declares its type explicitly
