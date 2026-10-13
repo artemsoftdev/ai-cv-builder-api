@@ -11,11 +11,12 @@ function capture() {
 }
 
 describe('createLogger', () => {
-  it('redacts cookies, credentials and the API key', () => {
+  it('redacts cookies, credentials, personal file names and the API key', () => {
     const { logger, entries } = capture();
     logger.info(
       {
         req: { headers: { cookie: 'cvb_session=token', authorization: 'Bearer token' } },
+        res: { headers: { 'content-disposition': 'attachment; filename="Jane Doe.pdf"' } },
         user: { password: 'hunter22', passwordHash: 'scrypt$...' },
         config: { llm: { apiKey: 'sk-ant-secret' } },
         llm: { apiKey: 'sk-ant-secret' },
@@ -23,7 +24,7 @@ describe('createLogger', () => {
       'request',
     );
     const output = JSON.stringify(entries());
-    expect(output).not.toMatch(/token|hunter22|scrypt|sk-ant-secret/);
+    expect(output).not.toMatch(/token|Jane Doe|hunter22|scrypt|sk-ant-secret/);
   });
 
   it('keeps SQL errors useful without their parameters', () => {

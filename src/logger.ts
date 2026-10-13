@@ -9,6 +9,8 @@ const REDACTED_PATHS = [
   'req.headers.cookie',
   'req.headers.authorization',
   'res.headers["set-cookie"]',
+  // The PDF download name contains the CV owner's full name.
+  'res.headers["content-disposition"]',
   '*.password',
   '*.passwordHash',
   // The Anthropic key, wherever a config object is logged.
