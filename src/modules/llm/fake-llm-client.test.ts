@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { sanitizeDraft } from '../generation/draft-sanitizer.js';
 import { Corpus } from '../grounding/corpus.js';
-import { verifyContent } from '../grounding/verifier.js';
+import { REASONS, verifyContent } from '../grounding/verifier.js';
 import { TransientError } from '../jobs/job-errors.js';
 import { FakeLlmClient } from './fake-llm-client.js';
 
@@ -40,6 +40,28 @@ describe('FakeLlmClient', () => {
     );
     expect(review.flags).toEqual([]);
     expect(review.removed).toEqual([]);
+  });
+
+  it('pads the summary and skills with role keywords the source lacks, which the verifier catches', async () => {
+    const llm = new FakeLlmClient();
+    const draft = await llm.draftCv({
+      sourceText: SOURCE,
+      targetRole: 'Senior React and Kafka Engineer',
+    });
+    expect(draft.skills[0]?.items).toEqual(['Go', 'PostgreSQL', 'Kafka', 'React']);
+    expect(draft.summary.text).toMatch(/ Hands-on experience with React\.$/);
+
+    const sanitized = sanitizeDraft(draft);
+    const { content, review } = verifyContent(
+      sanitized.content,
+      sanitized.claimedEvidence,
+      new Corpus(SOURCE),
+    );
+    expect(review.flags.map((flag) => [flag.itemId, flag.reason])).toEqual([
+      ['summary', REASONS.terms(['React'])],
+    ]);
+    expect(review.removed).toEqual([{ field: 'skills', value: 'React', reason: REASONS.skill }]);
+    expect(content.skills[0]?.items).toEqual(['Go', 'PostgreSQL', 'Kafka']);
   });
 
   it('does not take a date range for a phone number', async () => {

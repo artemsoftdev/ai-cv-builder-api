@@ -1,4 +1,4 @@
-// They only copy text from the source or the answer, like a well-behaved model.
+// They copy text from the source or the answer, like a well-behaved model, except for padRoleKeywords.
 import type {
   DraftCv,
   DraftEducation,
@@ -25,6 +25,11 @@ const EDUCATION_RE =
 const SKILLS_RE = /^(?:skills|technologies|tech stack|stack|tools)\s*:\s*(.+)$/i;
 const BULLET_PREFIX_RE = /^[-•*–]\s*/;
 const NAME_RE = /^\p{Lu}[\p{L}'-]+(?: \p{Lu}[\p{L}'.-]*){1,3}$/u;
+// Technologies a model tends to copy from the target role into a CV whether or not the source has them.
+const ROLE_KEYWORDS = (
+  'React Angular Vue TypeScript Python Java Kotlin Swift Rust ' +
+  'Kubernetes Terraform AWS GraphQL Kafka'
+).split(' ');
 
 export const FAKE_TRANSCRIPTION = `Alex Example
 alex@example.com
@@ -42,6 +47,15 @@ function words(text: string): string[] {
 function findPhone(text: string): string {
   const candidates = (text.match(PHONE_RE) ?? []).map((match) => match.trim());
   return candidates.find((candidate) => !DATE_RANGE_RE.test(candidate)) ?? '';
+}
+
+function mentions(text: string, term: string): boolean {
+  return new RegExp(`(?<![\\p{L}\\p{N}])${term}(?![\\p{L}\\p{N}])`, 'iu').test(text);
+}
+
+/** The deliberate slip: role keywords the source never mentions, which the verifier must catch. */
+export function padRoleKeywords(targetRole: string, sourceText: string): string[] {
+  return ROLE_KEYWORDS.filter((term) => mentions(targetRole, term) && !mentions(sourceText, term));
 }
 
 function leadingQuote(text: string, count = 8): string {
@@ -149,6 +163,14 @@ export function heuristicDraft({ sourceText, targetRole }: DraftCvInput): DraftC
   }
   for (const item of experience) item.relevance = relevance(item, targetRole);
 
+  const padded = padRoleKeywords(targetRole, sourceText);
+  if (padded.length > 0) {
+    if (skills[0]) skills[0].items.push(...padded);
+    else skills.push({ name: 'Skills', items: padded });
+  }
+  const padSentence = padded.length > 0 ? `Hands-on experience with ${padded.join(', ')}.` : '';
+  const summaryText = [summaryLine, padSentence].filter(Boolean).join(' ');
+
   return {
     contact: {
       fullName,
@@ -158,7 +180,7 @@ export function heuristicDraft({ sourceText, targetRole }: DraftCvInput): DraftC
       location: '',
       links: urls.map((url) => ({ label: linkLabel(url), url })),
     },
-    summary: { text: summaryLine, evidence: summaryLine ? [leadingQuote(summaryLine)] : [] },
+    summary: { text: summaryText, evidence: summaryLine ? [leadingQuote(summaryLine)] : [] },
     experience,
     education,
     skills,

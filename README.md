@@ -33,7 +33,10 @@ All configuration lives in `.env`: the API reads it via `env_file`, Postgres get
 `docker-compose.yml`.
 
 - No key? Set `LLM_PROVIDER=fake` in `.env` for a demo in which CVs are drafted by simple
-  heuristics instead of Claude (everything else is real).
+  heuristics instead of Claude (everything else is real). The fake copies only source text,
+  with one deliberate slip so the verifier has something to catch: technologies named in the
+  target role but missing from the source (e.g. React in "Senior React Developer") are added
+  to the summary and the skills, where they get flagged and removed.
 - Frontend checked out elsewhere: set `WEB_CONTEXT=/path/to/ai-cv-builder-front` in `.env`.
 - An `.env` created before `TRUST_PROXY` defaulted to `false` should be updated (see
   [Configuration](#configuration)).
