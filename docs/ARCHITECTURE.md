@@ -81,9 +81,12 @@ manual edits and AI rewrites.
    - each evidence quote must occur in the corpus (normalised whitespace/case/punctuation);
      otherwise the bullet is flagged;
    - every number/percentage/year in generated text must occur in the corpus, otherwise flagged;
-   - email, phone and URLs must occur in the corpus verbatim, otherwise removed;
+   - email, phone and URLs must occur in the corpus verbatim, otherwise removed (so are a
+     name or location whose words are not in the corpus: contact fields have no flag target);
    - each skill must occur in the corpus (token match), otherwise removed;
-   - company, job title, institution must occur in the corpus (fuzzy token match), otherwise flagged.
+   - company, job title, institution must occur in the corpus (fuzzy token match), otherwise flagged;
+   - seniority words in titles ("Senior", "Lead") and ownership verbs in bullets/summary
+     ("led", "managed", ...) must be backed by the same word family in the corpus, otherwise flagged.
 4. **Ordering** is done by our code from Claude's `relevance` score, not by trusting the order
    of the array.
 5. **Human in the loop**: flags and removed items are shown in the editor with the reason and the
