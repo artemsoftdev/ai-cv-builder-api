@@ -1,0 +1,97 @@
+import { describe, expect, it } from 'vitest';
+import { Corpus } from './corpus.js';
+import { normalizeText, normalizeUrl } from './normalize.js';
+
+const LEFT_QUOTE = String.fromCharCode(0x201c);
+const RIGHT_QUOTE = String.fromCharCode(0x201d);
+const EN_DASH = String.fromCharCode(0x2013);
+const ELLIPSIS = String.fromCharCode(0x2026);
+const SOFT_HYPHEN = String.fromCharCode(0xad);
+
+const SOURCE = [
+  'Jane Doe - jane.doe@example.com - +49 (30) 123 45 67',
+  'https://www.GitHub.com/JaneDoe/',
+  `Backend Engineer at Acme Payments, 2019${EN_DASH}2023.`,
+  'Built the "billing service" in Go; cut p99 latency by 40%.',
+  'Stack: Node.js, TypeScript, JavaScript, PostgreSQL, CI/CD, C++.',
+].join('\n');
+
+describe('normalizeText', () => {
+  it('unifies typography, case and whitespace', () => {
+    expect(normalizeText(`  ${LEFT_QUOTE}Billing${RIGHT_QUOTE}\n\tService${ELLIPSIS} `)).toBe(
+      '"billing" service...',
+    );
+    expect(normalizeText(`2019${EN_DASH}2023`)).toBe('2019-2023');
+    expect(normalizeText(`co${SOFT_HYPHEN}operate`)).toBe('cooperate');
+  });
+});
+
+describe('normalizeUrl', () => {
+  it('drops scheme, www, trailing slash and case', () => {
+    expect(normalizeUrl('https://www.GitHub.com/JaneDoe/')).toBe('github.com/janedoe');
+    expect(normalizeUrl('github.com/janedoe')).toBe('github.com/janedoe');
+    expect(normalizeUrl('mailto:Jane@Example.com')).toBe('jane@example.com');
+  });
+});
+
+describe('Corpus', () => {
+  const corpus = new Corpus(SOURCE);
+
+  it('finds verbatim quotes regardless of case, quotes and line breaks', () => {
+    expect(corpus.hasQuote('built the billing service')).toBe(false); // the source has quotes
+    expect(corpus.hasQuote(`Built the ${LEFT_QUOTE}billing service${RIGHT_QUOTE} in Go`)).toBe(
+      true,
+    );
+    expect(corpus.hasQuote('acme payments, 2019-2023')).toBe(true);
+    expect(corpus.hasQuote('2023. Built the')).toBe(true); // spans a line break
+    expect(corpus.hasQuote('Built the payments platform')).toBe(false);
+  });
+
+  it('accepts a quote shortened with an ellipsis when every fragment occurs', () => {
+    expect(corpus.hasQuote('Built the ... in Go')).toBe(true);
+    expect(corpus.hasQuote(`Built the${ELLIPSIS}cut p99 latency`)).toBe(true);
+    expect(corpus.hasQuote('Built the ... in Rust')).toBe(false);
+  });
+
+  it('rejects trivially short quotes', () => {
+    expect(corpus.hasQuote('in')).toBe(false);
+    expect(corpus.hasQuote('...')).toBe(false);
+  });
+
+  it('matches skills as whole terms or in compact form', () => {
+    expect(corpus.hasTerm('Go')).toBe(true);
+    expect(corpus.hasTerm('NodeJS')).toBe(true);
+    expect(corpus.hasTerm('node.js')).toBe(true);
+    expect(corpus.hasTerm('Type Script')).toBe(true);
+    expect(corpus.hasTerm('CICD')).toBe(true);
+    expect(corpus.hasTerm('C++')).toBe(true);
+    expect(corpus.hasTerm('Postgres')).toBe(false); // renamed, not mentioned
+    expect(corpus.hasTerm('Java')).toBe(false); // must not match inside "JavaScript"-like words
+    expect(corpus.hasTerm('Kubernetes')).toBe(false);
+  });
+
+  it('matches emails, phones and links exactly', () => {
+    expect(corpus.hasEmail('Jane.Doe@Example.com')).toBe(true);
+    expect(corpus.hasEmail('doe@example.com')).toBe(false);
+    expect(corpus.hasPhone('+49 30 1234567')).toBe(true);
+    expect(corpus.hasPhone('030 123 45 67')).toBe(true);
+    expect(corpus.hasPhone('+49 30 7654321')).toBe(false);
+    expect(corpus.hasPhone('12345')).toBe(false);
+    expect(corpus.hasUrl('github.com/janedoe')).toBe(true);
+    expect(corpus.hasUrl('https://github.com/jane')).toBe(false);
+  });
+
+  it('extends with answers, never with question text', () => {
+    const withAnswer = new Corpus(SOURCE, ['I led a team of 5 engineers']);
+    expect(withAnswer.hasNumber('5')).toBe(true);
+    expect(withAnswer.hasQuote('led a team of 5 engineers')).toBe(true);
+    expect(corpus.hasNumber('5')).toBe(false);
+  });
+
+  it('handles Cyrillic text', () => {
+    const ru = new Corpus('Иван Петров\nСтарший разработчик в ООО «Ромашка», 2018–2022');
+    expect(ru.hasQuote('старший разработчик в ООО "Ромашка"')).toBe(true);
+    expect(ru.hasWord('ромашка')).toBe(true);
+    expect(ru.hasNumber('2018')).toBe(true);
+  });
+});
