@@ -3,6 +3,7 @@ import type { CvContent } from '../cvs/cv-content.schema.js';
 import { Corpus } from '../grounding/corpus.js';
 import { REASONS } from '../grounding/verifier.js';
 import { PermanentError } from '../jobs/job-errors.js';
+import { answerFacts } from './answer-facts.js';
 import { applySectionRewrite, sectionSnapshot } from './section-rewrite.js';
 
 const SOURCE = `Jane Doe, jane@example.com, github.com/janedoe
@@ -223,6 +224,99 @@ describe('applySectionRewrite', () => {
       [expect.stringMatching(/^new-/), ['PostgreSQL']],
     ]);
     expect(result.review.removed.map((r) => r.value)).toEqual(['Rust']);
+  });
+
+  it('keeps contact values the model returned empty, and keeps what the user confirmed', () => {
+    const before = content();
+    before.contact.email = 'jane.new@mail.com';
+    before.contact.phone = '+49 30 1234567';
+    const result = applySectionRewrite(
+      before,
+      { section: 'contact', itemId: null },
+      {
+        section: 'contact',
+        data: { fullName: 'Jane Doe', email: '', phone: '', location: 'Berlin', links: [] },
+      },
+      new Corpus(SOURCE, ['I live in Berlin'], ['jane.new@mail.com', '+49 30 1234567']),
+      ids,
+    );
+    expect(result.content.contact).toMatchObject({
+      email: 'jane.new@mail.com',
+      phone: '+49 30 1234567',
+      location: 'Berlin',
+    });
+    expect(result.review.removed).toEqual([]);
+  });
+
+  it('keeps the verification of a summary the model left unchanged', () => {
+    const result = applySectionRewrite(
+      content(),
+      { section: 'summary', itemId: null },
+      {
+        section: 'summary',
+        data: { headline: 'Software Engineer', summary: { text: '', evidence: [] } },
+      },
+      corpus,
+      ids,
+    );
+    expect([...result.scope.targetIds]).toEqual(['headline']);
+    expect(result.review.flags).toEqual([]);
+  });
+
+  it('confirms a yes/no question through answer facts', () => {
+    const question = 'Did you lead the team of 5 engineers on the billing service?';
+    const result = applySectionRewrite(
+      content(),
+      { section: 'experience', itemId: 'exp-1' },
+      {
+        section: 'experience',
+        data: {
+          items: [
+            {
+              company: 'Acme Payments',
+              title: 'Software Engineer',
+              location: '',
+              startDate: '',
+              endDate: '',
+              relevance: 80,
+              bullets: [
+                {
+                  text: 'Led the team of 5 engineers on the billing service',
+                  evidence: ['lead the team of 5 engineers'],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      new Corpus(SOURCE, answerFacts(question, 'Yes')),
+      ids,
+    );
+    expect(result.review.flags).toEqual([]);
+    expect(
+      applySectionRewrite(
+        content(),
+        { section: 'experience', itemId: 'exp-1' },
+        {
+          section: 'experience',
+          data: {
+            items: [
+              {
+                company: 'Acme Payments',
+                title: 'Software Engineer',
+                location: '',
+                startDate: '',
+                endDate: '',
+                relevance: 80,
+                bullets: [{ text: 'Led the team of 5 engineers', evidence: ['Yes'] }],
+              },
+            ],
+          },
+        },
+        new Corpus(SOURCE, answerFacts(question, 'No')),
+        ids,
+      ).review.flags.map((f) => f.reason),
+    ).toEqual([REASONS.noEvidence, REASONS.number('5'), REASONS.ownership('led')]);
   });
 
   it('does not let an empty summary from the model erase the existing one', () => {

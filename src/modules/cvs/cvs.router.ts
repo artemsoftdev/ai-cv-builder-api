@@ -21,6 +21,11 @@ export function createCvsRouter({ cvService }: { cvService: CvService }): Router
     res.json({ cv: await cvService.get(getAuth(req).user.id, id) });
   });
 
+  router.get('/:id/source', async (req, res) => {
+    const { id } = parseInput(cvParamsSchema, req.params);
+    res.json({ source: await cvService.getSource(getAuth(req).user.id, id) });
+  });
+
   router.patch('/:id', async (req, res) => {
     const { id } = parseInput(cvParamsSchema, req.params);
     const body = parseInput(patchCvBodySchema, req.body);

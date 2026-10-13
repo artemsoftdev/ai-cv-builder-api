@@ -142,14 +142,21 @@ export function applySectionRewrite(
     );
   }
   const evidence: Evidence = {};
+  const vocabulary = content.skills.flatMap((group) => group.items);
 
   switch (rewrite.section) {
     case 'contact': {
-      const linkIds = new Map(content.contact.links.map((link) => [link.url, link.id]));
+      const current = content.contact;
+      const linkIds = new Map(current.links.map((link) => [link.url, link.id]));
+      const fields = sanitizeContactFields(rewrite.data);
+      // An empty value from the model would erase what the user has: keep the current one.
       const verified = verifyContact(
         {
-          ...sanitizeContactFields(rewrite.data),
-          headline: content.contact.headline,
+          fullName: fields.fullName || current.fullName,
+          email: fields.email || current.email,
+          phone: fields.phone || current.phone,
+          location: fields.location || current.location,
+          headline: current.headline,
           links: sanitizeLinks(rewrite.data.links, (url) => linkIds.get(url) ?? newId()),
         },
         corpus,
@@ -162,20 +169,23 @@ export function applySectionRewrite(
     }
 
     case 'summary': {
-      // An empty value from the model would silently erase the user's text: keep the old one.
       const headline = clampLine(rewrite.data.headline, L.text) || content.contact.headline;
-      const summary = clampMultiline(rewrite.data.summary.text, L.summary) || content.summary;
-      evidence[SUMMARY_TARGET_ID] = sanitizeQuotes(rewrite.data.summary.evidence);
+      const rewritten = clampMultiline(rewrite.data.summary.text, L.summary);
+      if (rewritten) evidence[SUMMARY_TARGET_ID] = sanitizeQuotes(rewrite.data.summary.evidence);
       const next = toValidContent({
         ...content,
-        summary,
+        summary: rewritten || content.summary,
         contact: { ...content.contact, headline },
       });
+      // A kept summary keeps its earlier verification (flags and evidence).
+      const verified = rewritten ? next : { summary: '', contact: next.contact };
       return {
         content: next,
-        review: verifySummary(next, evidence, corpus),
+        review: verifySummary(verified, evidence, corpus, vocabulary),
         scope: {
-          targetIds: new Set([SUMMARY_TARGET_ID, HEADLINE_TARGET_ID]),
+          targetIds: new Set(
+            rewritten ? [SUMMARY_TARGET_ID, HEADLINE_TARGET_ID] : [HEADLINE_TARGET_ID],
+          ),
           removedFields: [],
         },
       };
@@ -191,7 +201,7 @@ export function applySectionRewrite(
         });
         return {
           content: next,
-          review: verifyExperienceItem(updated, evidence, corpus),
+          review: verifyExperienceItem(updated, evidence, corpus, vocabulary),
           scope: {
             targetIds: new Set([
               existing.id,
@@ -213,7 +223,9 @@ export function applySectionRewrite(
         .slice(0, L.experienceItems - content.experience.length);
       return {
         content: toValidContent({ ...content, experience: [...content.experience, ...added] }),
-        review: mergeReviews(added.map((item) => verifyExperienceItem(item, evidence, corpus))),
+        review: mergeReviews(
+          added.map((item) => verifyExperienceItem(item, evidence, corpus, vocabulary)),
+        ),
         scope: noScope(),
       };
     }
@@ -230,7 +242,7 @@ export function applySectionRewrite(
         });
         return {
           content: next,
-          review: verifyEducationItem(updated, corpus),
+          review: verifyEducationItem(updated, corpus, vocabulary),
           scope: { targetIds: new Set([existing.id]), removedFields: [] },
         };
       }
@@ -242,7 +254,7 @@ export function applySectionRewrite(
         .slice(0, L.educationItems - content.education.length);
       return {
         content: toValidContent({ ...content, education: [...content.education, ...added] }),
-        review: mergeReviews(added.map((item) => verifyEducationItem(item, corpus))),
+        review: mergeReviews(added.map((item) => verifyEducationItem(item, corpus, vocabulary))),
         scope: noScope(),
       };
     }

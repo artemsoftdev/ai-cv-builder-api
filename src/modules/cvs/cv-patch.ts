@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { CvContent } from './cv-content.schema.js';
 import type { CvReview } from './cv.types.js';
-import { pruneReviewFlags } from './review-flags.js';
+import { pruneEvidence, pruneReviewFlags } from './review-flags.js';
 
 export interface CvPatchInput {
   title?: string;
@@ -15,7 +15,12 @@ export interface CvEditableState {
   review: CvReview | null;
 }
 
-export type CvChanges = Partial<{ title: string; content: CvContent; review: CvReview }>;
+export type CvChanges = Partial<{
+  title: string;
+  content: CvContent;
+  review: CvReview;
+  userFacts: string[];
+}>;
 
 /**
  * Pure merge rules for PATCH /api/cvs/:id. Returns only the fields that actually change, or
@@ -32,14 +37,19 @@ export function planCvPatch(current: CvEditableState, input: CvPatchInput): CvCh
     changes.content = input.content;
   }
   if (current.review) {
+    const after = changes.content ?? current.content;
     const flags = pruneReviewFlags(
       current.review.flags,
       current.content,
-      changes.content ?? current.content,
+      after,
       new Set(input.dismissFlagIds ?? []),
     );
-    if (flags.length !== current.review.flags.length) {
-      changes.review = { ...current.review, flags };
+    // A quote "found in your source" must not stay attached to text the user rewrote.
+    const evidence = pruneEvidence(current.review.evidence, current.content, after);
+    const evidenceChanged =
+      Object.keys(evidence).length !== Object.keys(current.review.evidence).length;
+    if (flags.length !== current.review.flags.length || evidenceChanged) {
+      changes.review = { ...current.review, flags, evidence };
     }
   }
 

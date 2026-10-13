@@ -41,6 +41,9 @@ export class CvQuestionEntity {
   @Column({ type: 'text', nullable: true })
   error!: string | null;
 
+  @Column({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage!: string | null;
+
   /** Display order within the CV (questions are returned ordered by position). */
   @Column({ type: 'integer' })
   position!: number;

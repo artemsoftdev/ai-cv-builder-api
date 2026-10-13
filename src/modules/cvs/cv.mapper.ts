@@ -35,6 +35,7 @@ export function toCvQuestionDto(question: CvQuestionEntity): CvQuestionDto {
     answer: question.answer,
     status: question.status,
     error: question.status === 'failed' ? question.error : null,
+    errorMessage: question.status === 'failed' ? question.errorMessage : null,
     createdAt: question.createdAt.toISOString(),
     updatedAt: question.updatedAt.toISOString(),
   };

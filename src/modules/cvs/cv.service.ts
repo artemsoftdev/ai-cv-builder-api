@@ -3,7 +3,13 @@ import { AppError, notFound } from '../../http/errors.js';
 import { planCvPatch, type CvPatchInput } from './cv-patch.js';
 import { toCvDto, toCvSummaryDto } from './cv.mapper.js';
 import { CvRepository } from './cv.repository.js';
-import { ACTIONABLE_QUESTION_STATUSES, type CvDto, type CvSummaryDto } from './cv.types.js';
+import {
+  ACTIONABLE_QUESTION_STATUSES,
+  type CvDto,
+  type CvSourceDto,
+  type CvSummaryDto,
+} from './cv.types.js';
+import { confirmedFacts, mergeUserFacts } from './user-facts.js';
 
 export const cvBusy = () =>
   new AppError('CV_BUSY', 'The AI is still working on this CV. Try again when it has finished.');
@@ -52,11 +58,26 @@ export class CvService {
 
     const changes = planCvPatch(cv, input);
     if (changes) {
+      const facts = confirmedFacts(cv, input);
+      if (facts.length > 0) {
+        changes.userFacts = mergeUserFacts(await repo.loadUserFacts(userId, cvId), facts);
+      }
       const newVersion = await repo.updateIfCurrent(userId, cvId, cv.version, changes);
       // Lost a race since the checks above (concurrent edit, new job or deletion).
       if (newVersion === null) await this.explainLostUpdate(repo, userId, cvId);
     }
     return this.get(userId, cvId);
+  }
+
+  async getSource(userId: string, cvId: string): Promise<CvSourceDto> {
+    const cv = await new CvRepository(this.dataSource.manager).findSource(userId, cvId);
+    if (!cv) throw notFound('CV');
+    return {
+      type: cv.sourceType,
+      filename: cv.sourceFilename,
+      transcribed: cv.sourceTranscribed,
+      text: cv.sourceText,
+    };
   }
 
   async delete(userId: string, cvId: string): Promise<void> {

@@ -30,6 +30,17 @@ describe('planCvPatch', () => {
     expect(changes?.review?.evidence).toEqual(sampleReview().evidence);
   });
 
+  it('drops evidence of rewritten text so it is not shown as found in the source', () => {
+    const content = sampleContent();
+    content.experience[0]!.bullets[0]!.text = 'Cut infra costs by 40%';
+    const changes = planCvPatch(current(), { content });
+    expect(changes?.review?.evidence).toEqual({});
+
+    const removed = sampleContent();
+    removed.experience[0]!.bullets.shift();
+    expect(planCvPatch(current(), { content: removed })?.review?.evidence).toEqual({});
+  });
+
   it('dismisses flags without touching content', () => {
     const changes = planCvPatch(current(), { dismissFlagIds: ['flag-summary'] });
     expect(changes).toEqual({

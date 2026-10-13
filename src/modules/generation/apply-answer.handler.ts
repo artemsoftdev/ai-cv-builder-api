@@ -9,6 +9,7 @@ import {
 } from '../jobs/job-errors.js';
 import type { ClaimedJob, JobContext, JobHandler } from '../jobs/job.types.js';
 import type { GenerationDeps } from './generate-cv.handler.js';
+import { answerFacts } from './answer-facts.js';
 import { applySectionRewrite, sectionSnapshot } from './section-rewrite.js';
 
 /**
@@ -48,11 +49,12 @@ export class ApplyAnswerHandler implements JobHandler {
       { signal: ctx.signal },
     );
 
-    // The user's answers are facts; the questions are not, so they stay out of the corpus.
-    const corpus = new Corpus(cv.sourceText, [
-      ...appliedAnswers.map((a) => a.answer),
-      question.answer,
-    ]);
+    const answers = [...appliedAnswers, { question: question.question, answer: question.answer }];
+    const corpus = new Corpus(
+      cv.sourceText,
+      answers.flatMap((a) => answerFacts(a.question, a.answer)),
+      cv.userFacts,
+    );
     const applied = applySectionRewrite(cv.content, target, rewrite, corpus);
     const review = replaceReviewPart(cv.review, applied.scope, applied.review);
 
@@ -71,7 +73,6 @@ export class ApplyAnswerHandler implements JobHandler {
 
   async onFailed(manager: EntityManager, job: ClaimedJob, failure: JobFailure): Promise<void> {
     if (!job.questionId) return;
-    // The contract stores the error code; the frontend explains it.
-    await this.deps.repository.finishQuestion(manager, job.questionId, 'failed', failure.code);
+    await this.deps.repository.finishQuestion(manager, job.questionId, 'failed', failure);
   }
 }

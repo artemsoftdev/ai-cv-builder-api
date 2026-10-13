@@ -98,7 +98,8 @@ export class GenerationService {
         const { affected } = await runSql(
           manager,
           `UPDATE cv_questions
-              SET answer = $1, status = 'applying', error = NULL, updated_at = now()
+              SET answer = $1, status = 'applying', error = NULL, error_message = NULL,
+                  updated_at = now()
             WHERE id = $2 AND cv_id = $3 AND status = ANY ($4::text[])`,
           [answer, questionId, cvId, ACTIONABLE_QUESTION_STATUSES],
         );

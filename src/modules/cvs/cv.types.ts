@@ -61,9 +61,21 @@ export interface CvQuestionDto {
   question: string;
   answer: string | null;
   status: QuestionStatus;
+  /** Job error code when status = 'failed'. */
   error: string | null;
+  /** User-facing explanation of `error`. */
+  errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CvSourceDto {
+  type: SourceType;
+  filename: string | null;
+  /** `text` is Claude's transcription of a scanned PDF, not the PDF's own text layer. */
+  transcribed: boolean;
+  /** null while a scanned PDF waits for its transcription. */
+  text: string | null;
 }
 
 export interface CvDto {

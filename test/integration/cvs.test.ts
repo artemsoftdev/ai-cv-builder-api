@@ -111,6 +111,7 @@ describe('GET /api/cvs/:id', () => {
             answer: null,
             status: 'open',
             error: null,
+            errorMessage: null,
             createdAt: expect.any(String),
             updatedAt: expect.any(String),
           },
@@ -153,6 +154,26 @@ describe('GET /api/cvs/:id', () => {
   });
 });
 
+describe('GET /api/cvs/:id/source', () => {
+  it('shows the owner the text the CV was generated from', async () => {
+    const cv = await createCv(ctx.dataSource, alice.userId, {
+      sourceType: 'pdf',
+      sourceFilename: 'jane.pdf',
+    });
+    const res = await alice.agent.get(`/api/cvs/${cv.id}/source`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      source: {
+        type: 'pdf',
+        filename: 'jane.pdf',
+        transcribed: false,
+        text: 'Jane Doe. Backend engineer at Acme Payments since March 2021...',
+      },
+    });
+    expect((await bob.agent.get(`/api/cvs/${cv.id}/source`)).status).toBe(404);
+  });
+});
+
 describe('ownership isolation', () => {
   it("hides another user's CV behind 404 on every route", async () => {
     const cv = await createCv(ctx.dataSource, alice.userId);
@@ -163,6 +184,7 @@ describe('ownership isolation', () => {
       await bob.agent.patch(`/api/cvs/${cv.id}`).send({ version: 1, title: 'Hacked' }),
       await bob.agent.delete(`/api/cvs/${cv.id}`),
       await bob.agent.post(`/api/cvs/${cv.id}/questions/${question.id}/dismiss`),
+      await bob.agent.get(`/api/cvs/${cv.id}/source`),
     ];
     for (const res of responses) {
       expect(res.status).toBe(404);
@@ -211,6 +233,24 @@ describe('PATCH /api/cvs/:id', () => {
     expect(dto.content!.experience[0]!.bullets[1]!.text).toBe('Cut p99 latency of the API.');
     expect(dto.review!.flags.map((flag) => flag.id)).toEqual(['flag-exp', 'flag-summary']);
     expect(dto.review!.removed).toEqual(sampleReview().removed);
+  });
+
+  it('remembers edited values and dismissed flag targets as confirmed by the user', async () => {
+    const cv = await createCv(ctx.dataSource, alice.userId);
+    const content = sampleContent();
+    content.contact.email = 'jane.new@mail.com';
+    content.skills[0]!.items.push('Docker');
+    const res = await alice.agent
+      .patch(`/api/cvs/${cv.id}`)
+      .send({ version: 1, content, dismissFlagIds: ['flag-summary'] });
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(res.body)).not.toContain('userFacts');
+
+    const [row] = await ctx.dataSource.query<{ facts: string[] }[]>(
+      `SELECT user_facts AS facts FROM cvs WHERE id = $1`,
+      [cv.id],
+    );
+    expect(row!.facts).toEqual(['jane.new@mail.com', 'Docker', sampleContent().summary]);
   });
 
   it('dismisses flags', async () => {

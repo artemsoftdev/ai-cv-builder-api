@@ -1,5 +1,10 @@
 import type { CvContent } from './cv-content.schema.js';
-import { HEADLINE_TARGET_ID, SUMMARY_TARGET_ID, type ReviewFlag } from './cv.types.js';
+import {
+  HEADLINE_TARGET_ID,
+  SUMMARY_TARGET_ID,
+  type CvReview,
+  type ReviewFlag,
+} from './cv.types.js';
 
 /**
  * Maps every flaggable target id to a fingerprint of the text the flag is about.
@@ -52,4 +57,20 @@ export function pruneReviewFlags(
     const current = afterTargets.get(flag.itemId);
     return current !== undefined && current === beforeTargets.get(flag.itemId);
   });
+}
+
+/** Keeps evidence only for targets whose text is unchanged. */
+export function pruneEvidence(
+  evidence: CvReview['evidence'],
+  before: CvContent | null,
+  after: CvContent | null,
+): CvReview['evidence'] {
+  const beforeTargets = flagTargetFingerprints(before);
+  const afterTargets = after === before ? beforeTargets : flagTargetFingerprints(after);
+  return Object.fromEntries(
+    Object.entries(evidence).filter(([id]) => {
+      const current = afterTargets.get(id);
+      return current !== undefined && current === beforeTargets.get(id);
+    }),
+  );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CV_CONTENT_LIMITS as L } from '../cvs/cv-content.schema.js';
-import { sanitizeDraft } from './draft-sanitizer.js';
+import { sanitizeDraft, truncate } from './draft-sanitizer.js';
 import type { DraftCv, DraftExperience } from './llm-output.schemas.js';
 
 const BELL = String.fromCharCode(0x07);
@@ -72,7 +72,7 @@ describe('sanitizeDraft', () => {
         summary: { text: 'x'.repeat(L.summary + 100), evidence: [] },
         experience: [
           experience({
-            company: 'A'.repeat(L.text - 1) + EMOJI,
+            company: 'A'.repeat(L.text - 2) + EMOJI + 'B',
             bullets: Array.from({ length: 20 }, (_, i) => ({
               text: `${i} ${'word '.repeat(100)}`,
               evidence: [],
@@ -84,10 +84,19 @@ describe('sanitizeDraft', () => {
     expect(content.contact.fullName).toBe('Jane Doe');
     expect(content.summary).toHaveLength(L.summary);
     const item = content.experience[0]!;
-    // Cut before the emoji rather than through it.
-    expect(item.company).toBe('A'.repeat(L.text - 1));
+    // Cut before the emoji rather than through it, and marked as shortened.
+    expect(item.company).toBe(`${'A'.repeat(L.text - 2)}\u2026`);
     expect(item.bullets).toHaveLength(L.bulletsPerItem);
     for (const bullet of item.bullets) expect(bullet.text.length).toBeLessThanOrEqual(L.bullet);
+  });
+
+  it('shortens at a word boundary with an ellipsis instead of cutting mid-number', () => {
+    const text = `Served ${'many '.repeat(75)}customers, 1,500,000 requests a day`;
+    const short = truncate(text, 400);
+    expect(short.length).toBeLessThanOrEqual(400);
+    expect(short.endsWith('\u2026')).toBe(true);
+    expect(short).not.toMatch(/1,5\S*\u2026$/u);
+    expect(truncate('fits', 10)).toBe('fits');
   });
 
   it('drops empty entries, duplicate bullets and unsafe links', () => {
@@ -138,7 +147,7 @@ describe('sanitizeDraft', () => {
     expect(content.skills.map((g) => [g.name, g.items])).toEqual([['Skills', ['Go', 'Rust']]]);
   });
 
-  it('orders experience by relevance (stable for ties) and caps the count', () => {
+  it('orders experience by relevance band, keeping the model order within a band', () => {
     const { content } = sanitizeDraft(
       draft({
         experience: [
@@ -152,8 +161,8 @@ describe('sanitizeDraft', () => {
       }),
     );
     expect(content.experience.map((e) => e.company)).toEqual([
-      'Over',
       'High',
+      'Over',
       'TieA',
       'TieB',
       'Low',

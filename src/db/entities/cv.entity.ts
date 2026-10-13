@@ -51,6 +51,14 @@ export class CvEntity {
   @Column({ name: 'source_pdf', type: 'bytea', nullable: true, select: false })
   sourcePdf!: Buffer | null;
 
+  /** source_text is Claude's transcription of a scanned PDF. */
+  @Column({ name: 'source_transcribed', type: 'boolean', default: false })
+  sourceTranscribed!: boolean;
+
+  /** Text the user typed or confirmed in the editor; grounds later answer rewrites. */
+  @Column({ name: 'user_facts', type: 'jsonb', default: () => "'[]'::jsonb", select: false })
+  userFacts!: string[];
+
   @Column({ type: 'text', default: 'generating' })
   status!: CvStatus;
 

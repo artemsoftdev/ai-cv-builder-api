@@ -342,6 +342,9 @@ describe('POST /api/cvs with a PDF', () => {
     expect(stored.hasPdf).toBe(false);
     expect(stored.sourceText).toContain('Alex Example');
     expect((await getCv(res.body.cv.id)).status).toBe('ready');
+    const source = await me.agent.get(`/api/cvs/${res.body.cv.id}/source`);
+    expect(source.body.source).toMatchObject({ type: 'pdf', transcribed: true });
+    expect(source.body.source.text).toContain('Alex Example');
   });
 
   it('fails the CV with SOURCE_UNREADABLE when the scan has no legible text', async () => {
@@ -534,6 +537,7 @@ describe('POST /api/cvs/:id/questions/:questionId/answer', () => {
     expect(failed.questions.find((q) => q.id === question.id)).toMatchObject({
       status: 'failed',
       error: 'LLM_REFUSED',
+      errorMessage: 'The AI declined to process this source.',
     });
 
     llm.overrides = {};
@@ -542,6 +546,73 @@ describe('POST /api/cvs/:id/questions/:questionId/answer', () => {
     expect((await getCv(cv.id)).questions.find((q) => q.id === question.id)?.status).toBe(
       'applied',
     );
+  });
+
+  it('keeps what the user typed when an answer rewrites the same section', async () => {
+    const cv = await generatedCv();
+    const content = structuredClone(cv.content!);
+    content.contact.email = 'jane.new@mail.com';
+    const saved = await me.agent.patch(`/api/cvs/${cv.id}`).send({ version: cv.version, content });
+    expect(saved.status).toBe(200);
+    const question = await createQuestion(ctx.dataSource, cv.id, {
+      section: 'contact',
+      itemId: null,
+      question: 'Which phone number should recruiters use?',
+    });
+    // A model that drops the email it did not find in the source.
+    llm.overrides.rewriteSection = (input) => {
+      if (input.section !== 'contact') throw new Error('unexpected section');
+      return {
+        section: 'contact',
+        data: { ...input.current, email: '', phone: '+49 151 2345678' },
+      };
+    };
+
+    expect((await answer(cv.id, question.id, 'Call me on +49 151 2345678')).status).toBe(202);
+    await worker.drain();
+    const updated = await getCv(cv.id);
+    expect(updated.content!.contact).toMatchObject({
+      email: 'jane.new@mail.com',
+      phone: '+49 151 2345678',
+    });
+    expect(updated.review!.removed).toEqual([]);
+  });
+
+  it('turns a bare "yes" into a confirmed statement', async () => {
+    const { cv, question } = await readyCvWithQuestion();
+    await ctx.dataSource.query(`UPDATE cv_questions SET question = $1 WHERE id = $2`, [
+      'Did you run the billing service on-call rotation for 2 years?',
+      question.id,
+    ]);
+    llm.overrides.rewriteSection = (input) => {
+      if (input.section !== 'experience') throw new Error('unexpected section');
+      const [item] = input.current.items;
+      return {
+        section: 'experience',
+        data: {
+          items: [
+            {
+              ...item!,
+              relevance: 80,
+              bullets: [
+                ...item!.bullets.map((text) => ({ text, evidence: [text] })),
+                {
+                  text: 'Ran the billing service on-call rotation for 2 years',
+                  evidence: ['the billing service on-call rotation for 2 years'],
+                },
+              ],
+            },
+          ],
+        },
+      };
+    };
+    expect((await answer(cv.id, question.id, 'Yes')).status).toBe(202);
+    await worker.drain();
+    const updated = await getCv(cv.id);
+    const entry = updated.content!.experience.find((e) => e.id === question.itemId)!;
+    const added = entry.bullets.at(-1)!;
+    expect(added.text).toBe('Ran the billing service on-call rotation for 2 years');
+    expect(updated.review!.flags.filter((f) => f.itemId === added.id)).toEqual([]);
   });
 
   it('retries the rewrite when the CV changed underneath it', async () => {

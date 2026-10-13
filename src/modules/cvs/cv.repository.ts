@@ -86,6 +86,31 @@ export class CvRepository {
   }
 
   /** True while a job for this CV is queued or running. */
+  async findSource(
+    userId: string,
+    cvId: string,
+  ): Promise<Pick<
+    CvEntity,
+    'sourceType' | 'sourceFilename' | 'sourceTranscribed' | 'sourceText'
+  > | null> {
+    return this.manager
+      .createQueryBuilder(CvEntity, 'cv')
+      .select(['cv.id', 'cv.sourceType', 'cv.sourceFilename', 'cv.sourceTranscribed'])
+      .addSelect('cv.sourceText')
+      .where('cv.id = :cvId AND cv.user_id = :userId', { cvId, userId })
+      .getOne();
+  }
+
+  async loadUserFacts(userId: string, cvId: string): Promise<string[]> {
+    const row = await this.manager
+      .createQueryBuilder(CvEntity, 'cv')
+      .select('cv.id')
+      .addSelect('cv.userFacts')
+      .where('cv.id = :cvId AND cv.user_id = :userId', { cvId, userId })
+      .getOne();
+    return row?.userFacts ?? [];
+  }
+
   async isBusy(userId: string, cvId: string): Promise<boolean> {
     const [row] = await this.manager.query<{ busy: boolean }[]>(
       `SELECT EXISTS (

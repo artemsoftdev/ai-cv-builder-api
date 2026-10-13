@@ -51,17 +51,24 @@ export interface SanitizedDraft {
   questions: NewQuestion[];
 }
 
-/** Cuts at `max` UTF-16 units without splitting a surrogate pair. */
-function truncate(value: string, max: number): string {
+const ELLIPSIS = '\u2026';
+
+/** Fits `max` UTF-16 units: cut at the last word boundary and marked with an ellipsis. */
+export function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
-  const cut = value.slice(0, max);
+  let cut = value.slice(0, max - ELLIPSIS.length);
   const last = cut.charCodeAt(cut.length - 1);
-  return (last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut).trimEnd();
+  if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
+  const boundary = cut.search(/\s\S*$/u);
+  if (boundary > max / 2) cut = cut.slice(0, boundary);
+  return `${cut.trimEnd().replace(/[\s,;:.-]+$/u, '')}${ELLIPSIS}`;
 }
 
 export const clampLine = (value: string, max: number) => truncate(sanitizeLine(value), max);
 export const clampMultiline = (value: string, max: number) =>
   truncate(sanitizeMultiline(value), max);
+
+const relevanceBand = (relevance: number) => Math.round(relevance / 10);
 
 export function clampRelevance(value: number): number {
   return Number.isFinite(value) ? Math.min(100, Math.max(0, Math.round(value))) : 0;
@@ -229,8 +236,8 @@ export function sanitizeDraft(draft: DraftCv, newId: IdFactory = randomUUID): Sa
       item: sanitizeExperience(item, evidence, { itemId: newId(), bulletId: () => newId() }),
     }))
     .filter((entry): entry is typeof entry & { item: ExperienceItem } => entry.item !== null)
-    // Array.prototype.sort is stable: equally relevant entries keep the model's order.
-    .sort((a, b) => b.relevance - a.relevance)
+    // Bands of 10 so near-equal scores keep the model's most-recent-first order (sort is stable).
+    .sort((a, b) => relevanceBand(b.relevance) - relevanceBand(a.relevance))
     .slice(0, L.experienceItems);
 
   const education = draft.education

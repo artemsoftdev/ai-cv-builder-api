@@ -25,6 +25,7 @@ export interface AnswerContext {
     review: CvReview | null;
     version: number;
     sourceText: string | null;
+    userFacts: string[];
   };
   question: {
     id: string;
@@ -73,7 +74,8 @@ export class GenerationRepository {
   async saveTranscription(cvId: string, text: string, lease: Lease): Promise<void> {
     await runSql(
       this.dataSource.manager,
-      `UPDATE cvs SET source_text = $1, source_pdf = NULL, updated_at = now()
+      `UPDATE cvs SET source_text = $1, source_pdf = NULL, source_transcribed = true,
+              updated_at = now()
         WHERE id = $2 AND ${leaseHeldSql('$3', '$4')}`,
       [text, cvId, lease.jobId, lease.lockedBy],
     );
@@ -127,7 +129,7 @@ export class GenerationRepository {
     const cv = await this.dataSource.manager
       .createQueryBuilder(CvEntity, 'cv')
       .select(['cv.id', 'cv.targetRole', 'cv.content', 'cv.review', 'cv.version'])
-      .addSelect('cv.sourceText')
+      .addSelect(['cv.sourceText', 'cv.userFacts'])
       .where('cv.id = :cvId', { cvId })
       .getOne();
     if (!cv) return null;
@@ -183,13 +185,13 @@ export class GenerationRepository {
     manager: EntityManager,
     questionId: string,
     status: 'applied' | 'failed',
-    error: string | null,
+    failure: JobFailure | null,
   ): Promise<void> {
     await runSql(
       manager,
-      `UPDATE cv_questions SET status = $1, error = $2, updated_at = now()
-        WHERE id = $3 AND status = 'applying'`,
-      [status, error, questionId],
+      `UPDATE cv_questions SET status = $1, error = $2, error_message = $3, updated_at = now()
+        WHERE id = $4 AND status = 'applying'`,
+      [status, failure?.code ?? null, failure?.userMessage ?? null, questionId],
     );
   }
 }
