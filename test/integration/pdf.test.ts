@@ -2,8 +2,8 @@ import supertest from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { sampleContent } from '../fixtures/cv-content.js';
 import { signedInUser, useTestApp, type Browser } from '../helpers/app.js';
-import { createCv, createJob } from '../helpers/fixtures.js';
-import { inspectPdf } from '../helpers/pdf.js';
+import { createCv, createJob } from '../fixtures/db-rows.js';
+import { inspectPdf } from '../helpers/pdf-inspect.js';
 
 const ctx = useTestApp({ pdfRateLimit: { limit: 3, windowMs: 60_000 } });
 

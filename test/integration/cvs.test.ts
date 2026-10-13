@@ -4,7 +4,7 @@ import { CvEntity, CvQuestionEntity, JobEntity } from '../../src/db/entities/ind
 import type { CvDto } from '../../src/modules/cvs/cv.types.js';
 import { sampleContent, sampleReview } from '../fixtures/cv-content.js';
 import { signedInUser, useTestApp, type Browser } from '../helpers/app.js';
-import { createCv, createJob, createQuestion } from '../helpers/fixtures.js';
+import { createCv, createJob, createQuestion } from '../fixtures/db-rows.js';
 
 const ctx = useTestApp();
 

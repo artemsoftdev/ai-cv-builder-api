@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeFlateBombPdf, makePdf, makeScannedPdf } from '../../../test/helpers/pdf.js';
+import { makeFlateBombPdf, makePdf, makeScannedPdf } from '../../../test/fixtures/pdf-files.js';
 import { extractPdfText, isPdf, PdfUnreadableError } from './pdf-text.js';
 import { countNonWhitespace, normalizeSourceText } from './source-text.js';
 import { safeFilename } from './upload.js';

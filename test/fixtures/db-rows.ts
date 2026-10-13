@@ -3,7 +3,7 @@ import { CvQuestionEntity, JobEntity, type CvEntity } from '../../src/db/entitie
 import type { JobStatus, JobType } from '../../src/db/entities/job.entity.js';
 import { CvRepository, type NewCv } from '../../src/modules/cvs/cv.repository.js';
 import type { QuestionSection, QuestionStatus } from '../../src/modules/cvs/cv.types.js';
-import { sampleContent, sampleReview } from '../fixtures/cv-content.js';
+import { sampleContent, sampleReview } from './cv-content.js';
 
 export async function createCv(
   dataSource: DataSource,

@@ -8,8 +8,8 @@ import type { JobWorker } from '../../src/modules/jobs/worker.js';
 import { FakeLlmClient } from '../../src/modules/llm/fake-llm-client.js';
 import { FAKE_TRANSCRIPTION } from '../../src/modules/llm/fake-heuristics.js';
 import { NO_LIMIT, signedInUser, useTestApp, type Browser } from '../helpers/app.js';
-import { createCv, createJob, createQuestion } from '../helpers/fixtures.js';
-import { makePdf, makeScannedPdf } from '../helpers/pdf.js';
+import { createCv, createJob, createQuestion } from '../fixtures/db-rows.js';
+import { makePdf, makeScannedPdf } from '../fixtures/pdf-files.js';
 import { createTestWorker } from '../helpers/worker.js';
 
 const ctx = useTestApp({ generationRateLimit: NO_LIMIT, answerRateLimit: NO_LIMIT });

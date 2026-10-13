@@ -5,7 +5,7 @@ import { PermanentError, TransientError } from '../../src/modules/jobs/job-error
 import type { ClaimedJob, JobHandlers } from '../../src/modules/jobs/job.types.js';
 import { FakeLlmClient } from '../../src/modules/llm/fake-llm-client.js';
 import { signedInUser, useTestApp } from '../helpers/app.js';
-import { createCv, createJob } from '../helpers/fixtures.js';
+import { createCv, createJob } from '../fixtures/db-rows.js';
 import { createTestWorker } from '../helpers/worker.js';
 
 const ctx = useTestApp();

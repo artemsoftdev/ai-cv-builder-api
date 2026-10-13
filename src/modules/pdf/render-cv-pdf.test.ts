@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sampleContent } from '../../../test/fixtures/cv-content.js';
-import { inspectPdf } from '../../../test/helpers/pdf.js';
+import { inspectPdf } from '../../../test/helpers/pdf-inspect.js';
 import type { CvContent } from '../cvs/cv-content.schema.js';
 import { renderCvPdf } from './render-cv-pdf.js';
 
