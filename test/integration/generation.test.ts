@@ -149,7 +149,11 @@ describe('POST /api/cvs with text', () => {
     expect(flags(exp.id)).toEqual([REASONS.seniority('senior')]);
     expect(flags(exp.bullets[0]!.id)).toEqual([]);
     expect(flags(exp.bullets[1]!.id)).toEqual([REASONS.number('40')]);
-    expect(flags(exp.bullets[2]!.id)).toEqual([REASONS.noEvidence, REASONS.number('12')]);
+    expect(flags(exp.bullets[2]!.id)).toEqual([
+      REASONS.noEvidence,
+      REASONS.number('12'),
+      REASONS.ownership('led'),
+    ]);
 
     expect(cv.content!.contact.email).toBe('');
     expect(cv.content!.contact.links).toEqual([]);
