@@ -6,20 +6,32 @@ import type { Logger } from '../logger.js';
 /** Arbitrary but fixed key for pg_advisory_lock, so concurrent boots migrate one at a time. */
 const MIGRATION_LOCK_KEY = 4_206_942;
 
-/**
- * Waits until Postgres accepts connections. Compose healthchecks usually cover this, but a
- * short retry loop makes local runs and restarts robust without depending on them.
- */
+export interface WaitOptions {
+  attempts?: number;
+  delayMs?: number;
+  /** Rejects while the database is unreachable. */
+  check?: (url: string) => Promise<void>;
+}
+
+async function selectOne(url: string): Promise<void> {
+  const client = new pg.Client({ connectionString: url, connectionTimeoutMillis: 3_000 });
+  try {
+    await client.connect();
+    await client.query('SELECT 1');
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
+/** Retries until Postgres accepts connections, so a restart does not depend on compose ordering. */
 export async function waitForDatabase(
   url: string,
   logger: Logger,
-  { attempts = 30, delayMs = 1_000 } = {},
+  { attempts = 30, delayMs = 1_000, check = selectOne }: WaitOptions = {},
 ): Promise<void> {
   for (let attempt = 1; ; attempt++) {
-    const client = new pg.Client({ connectionString: url, connectionTimeoutMillis: 3_000 });
     try {
-      await client.connect();
-      await client.query('SELECT 1');
+      await check(url);
       return;
     } catch (err) {
       if (attempt >= attempts) throw err;
@@ -28,8 +40,6 @@ export async function waitForDatabase(
         'Database not reachable yet, retrying',
       );
       await sleep(delayMs);
-    } finally {
-      await client.end().catch(() => undefined);
     }
   }
 }

@@ -5,14 +5,15 @@ import { ConfigError, loadConfig, type AppConfig } from './config/config.js';
 import { runMigrations, waitForDatabase } from './db/bootstrap.js';
 import { createDataSource } from './db/data-source.js';
 import { createApp } from './http/app.js';
+import { createShutdown } from './lifecycle.js';
 import { createLogger, type Logger } from './logger.js';
 import { createJobHandlers } from './modules/generation/job-handlers.js';
 import { JobWorker } from './modules/jobs/worker.js';
 import { createLlmClient } from './modules/llm/create-llm-client.js';
 import { assertPdfFontsReadable } from './modules/pdf/fonts.js';
 
-/** Running jobs get WORKER_SHUTDOWN_GRACE_MS to finish; HTTP draining and the DB need a bit more. */
 const WORKER_SHUTDOWN_GRACE_MS = 25_000;
+const HTTP_DRAIN_MS = 10_000;
 const SHUTDOWN_TIMEOUT_MS = WORKER_SHUTDOWN_GRACE_MS + 10_000;
 
 function loadConfigOrExit(): AppConfig {
@@ -31,14 +32,6 @@ function loadConfigOrExit(): AppConfig {
 function listen(app: Express, port: number): Promise<Server> {
   return new Promise((resolve, reject) => {
     const server = app.listen(port, (err) => (err ? reject(err) : resolve(server)));
-  });
-}
-
-/** Stops accepting connections and waits for in-flight requests; idle keep-alives close now. */
-function closeServer(server: Server): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.close((err) => (err ? reject(err) : resolve()));
-    server.closeIdleConnections();
   });
 }
 
@@ -77,29 +70,15 @@ async function main(config: AppConfig, logger: Logger): Promise<void> {
     : null;
   worker?.start();
 
-  let shuttingDown = false;
-  const shutdown = async (reason: string, exitCode: number): Promise<void> => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    logger.info({ reason }, 'Shutting down');
-    const forceExit = setTimeout(() => {
-      logger.error('Graceful shutdown timed out, forcing exit');
-      process.exit(1);
-    }, SHUTDOWN_TIMEOUT_MS);
-    forceExit.unref();
-    try {
-      // Order matters: no new requests, then no new jobs (running ones finish or are handed
-      // back to the queue), then close the pool both of them use.
-      await closeServer(server);
-      await worker?.stop();
-      await dataSource.destroy();
-      logger.info('Shutdown complete');
-      process.exit(exitCode);
-    } catch (err) {
-      logger.error({ err }, 'Error during shutdown');
-      process.exit(1);
-    }
-  };
+  const shutdown = createShutdown({
+    server,
+    worker,
+    dataSource,
+    logger,
+    exit: (code) => process.exit(code),
+    timeoutMs: SHUTDOWN_TIMEOUT_MS,
+    drainMs: HTTP_DRAIN_MS,
+  });
 
   process.on('SIGTERM', () => void shutdown('SIGTERM', 0));
   process.on('SIGINT', () => void shutdown('SIGINT', 0));
