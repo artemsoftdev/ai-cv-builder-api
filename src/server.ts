@@ -8,6 +8,7 @@ import { createLogger } from './logger.js';
 import { createJobHandlers } from './modules/generation/job-handlers.js';
 import { JobWorker } from './modules/jobs/worker.js';
 import { createLlmClient } from './modules/llm/create-llm-client.js';
+import { assertPdfFontsReadable } from './modules/pdf/fonts.js';
 
 /** Running jobs get WORKER_SHUTDOWN_GRACE_MS to finish; HTTP draining and the DB need a bit more. */
 const WORKER_SHUTDOWN_GRACE_MS = 25_000;
@@ -37,6 +38,9 @@ async function main(): Promise<void> {
   const config = loadConfigOrExit();
   const logger = createLogger(config.logLevel);
   const dataSource = createDataSource({ url: config.databaseUrl, logger });
+
+  // A broken image (fonts not copied) should fail now, not on the first PDF download.
+  await assertPdfFontsReadable();
 
   // Migrations run before the port opens, so no request ever sees an old schema.
   await waitForDatabase(config.databaseUrl, logger);

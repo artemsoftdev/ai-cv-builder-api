@@ -24,6 +24,8 @@ export interface AppOptions {
   answerRateLimit?: RateLimitOptions;
   /** CVs a user may have generating at the same time. Default: 3. */
   maxActiveGenerations?: number;
+  /** PDF exports per user (rendering is CPU work in the API process). Default: 30 / 10 minutes. */
+  pdfRateLimit?: RateLimitOptions;
 }
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -36,3 +38,5 @@ export const DEFAULT_CREDENTIALS_RATE_LIMIT: RateLimitOptions = {
 export const DEFAULT_GENERATION_RATE_LIMIT: RateLimitOptions = { limit: 10, windowMs: HOUR_MS };
 
 export const DEFAULT_ANSWER_RATE_LIMIT: RateLimitOptions = { limit: 60, windowMs: HOUR_MS };
+
+export const DEFAULT_PDF_RATE_LIMIT: RateLimitOptions = { limit: 30, windowMs: 10 * 60 * 1000 };

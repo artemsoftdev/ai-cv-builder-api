@@ -10,11 +10,13 @@ import { createHealthRouter } from '../modules/health/health.router.js';
 import { DEFAULT_MAX_ACTIVE_GENERATIONS } from '../modules/ingestion/generation-capacity.js';
 import { createIngestionRouter } from '../modules/ingestion/ingestion.router.js';
 import { IngestionService } from '../modules/ingestion/ingestion.service.js';
+import { createPdfRouter } from '../modules/pdf/pdf.router.js';
 import { getAuth } from './auth-context.js';
 import {
   DEFAULT_ANSWER_RATE_LIMIT,
   DEFAULT_CREDENTIALS_RATE_LIMIT,
   DEFAULT_GENERATION_RATE_LIMIT,
+  DEFAULT_PDF_RATE_LIMIT,
   type AppDeps,
   type AppOptions,
 } from './deps.js';
@@ -49,7 +51,7 @@ export function createApiRouter(deps: AppDeps, options: AppOptions = {}): Router
   );
 
   // Everything under /cvs requires a session. Authenticate once here, then let each feature
-  // router add its own routes on the same path (part 3 adds GET /:id/pdf).
+  // router add its own routes on the same path.
   const maxActiveGenerations = options.maxActiveGenerations ?? DEFAULT_MAX_ACTIVE_GENERATIONS;
   // One budget for every generation start (create + retry): each costs LLM calls.
   const generationRateLimit = createRateLimiter(
@@ -73,6 +75,12 @@ export function createApiRouter(deps: AppDeps, options: AppOptions = {}): Router
         options.answerRateLimit ?? DEFAULT_ANSWER_RATE_LIMIT,
         byUser,
       ),
+    }),
+  );
+  cvs.use(
+    createPdfRouter({
+      cvService,
+      pdfRateLimit: createRateLimiter(options.pdfRateLimit ?? DEFAULT_PDF_RATE_LIMIT, byUser),
     }),
   );
   api.use('/cvs', cvs);
