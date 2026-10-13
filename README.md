@@ -24,12 +24,15 @@ cp .env.example .env            # put your key in ANTHROPIC_API_KEY (the only se
 docker compose up --build
 ```
 
-Open <http://localhost:3000>. The API is also published on <http://localhost:4000/api/health>.
+Open <http://localhost:3000>. The API is also published on <http://localhost:4000/api/health>
+(loopback only).
 
-- The key can also come from the shell: `ANTHROPIC_API_KEY=sk-ant-... docker compose up --build`.
-- No key? `LLM_PROVIDER=fake docker compose up --build` runs a demo in which CVs are drafted by
-  simple heuristics instead of Claude (everything else is real).
-- Frontend checked out elsewhere: `WEB_CONTEXT=/path/to/ai-cv-builder-front docker compose up`.
+All configuration lives in `.env` (services read it via `env_file`; nothing is hardcoded in
+`docker-compose.yml`).
+
+- No key? Set `LLM_PROVIDER=fake` in `.env` for a demo in which CVs are drafted by simple
+  heuristics instead of Claude (everything else is real).
+- Frontend checked out elsewhere: set `WEB_CONTEXT=/path/to/ai-cv-builder-front` in `.env`.
 - `docker compose down` stops the stack; `docker compose down -v` also deletes the database.
 
 | Service | Port | Notes                                                                    |
@@ -48,7 +51,9 @@ docker run -d --name cvbuilder-pg -p 5433:5432 \
   -e POSTGRES_USER=cvbuilder -e POSTGRES_PASSWORD=cvbuilder -e POSTGRES_DB=cvbuilder \
   postgres:17-alpine
 
-cp .env.example .env   # DATABASE_URL already points at the database above
+cp .env.example .env
+# .env targets the compose network; point the API at the database above instead:
+echo 'DATABASE_URL=postgres://cvbuilder:cvbuilder@localhost:5433/cvbuilder' > .env.local
 npm ci
 npm run dev            # http://localhost:4000/api/health
 ```

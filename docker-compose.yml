@@ -1,23 +1,18 @@
-# AI CV Builder: Postgres + API (this repo) + web (../ai-cv-builder-front).
-#
-#   ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
-#
-# Variables are read from the shell or from a .env file next to this file (git-ignored, see
-# .env.example). Without a key, use LLM_PROVIDER=fake for a demo that drafts CVs heuristically.
+# cp .env.example .env, set ANTHROPIC_API_KEY, then: docker compose up --build
 name: ai-cv-builder
 
 services:
   db:
     image: postgres:17-alpine
+    # Only what Postgres needs, so the API key stays out of this container.
     environment:
-      POSTGRES_USER: cv
-      POSTGRES_PASSWORD: cv
-      POSTGRES_DB: cv
+      POSTGRES_USER: ${POSTGRES_USER:?set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set in .env}
     volumes:
       - db-data:/var/lib/postgresql/data
-    # Not published to the host: only the API talks to the database.
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U cv -d cv']
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,50 +22,22 @@ services:
 
   api:
     build: .
-    # tini as PID 1: forwards SIGTERM to node and reaps zombies.
     init: true
-    environment:
-      PORT: 4000
-      DATABASE_URL: postgres://cv:cv@db:5432/cv
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5-5}
-      ANTHROPIC_EFFORT: ${ANTHROPIC_EFFORT:-medium}
-      ANTHROPIC_FALLBACKS: ${ANTHROPIC_FALLBACKS:-true}
-      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
-      FAKE_LLM_DELAY_MS: ${FAKE_LLM_DELAY_MS:-1500}
-      WORKER_ENABLED: 'true'
-      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
-      # Plain HTTP on localhost; set to true behind HTTPS.
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
+    env_file: .env
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - '4000:4000'
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - "fetch('http://127.0.0.1:4000/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-      start_interval: 2s
-    # Running generation jobs get 25 s to finish on shutdown before they are handed back to the
-    # queue; Docker's default 10 s would SIGKILL them mid-way and cost them a retry attempt.
+      - '127.0.0.1:4000:4000'
+    # Worker gets 25 s to hand running jobs back before SIGKILL.
     stop_grace_period: 40s
     restart: unless-stopped
 
   web:
     build:
-      context: ${WEB_CONTEXT:-../ai-cv-builder-front}
+      context: ${WEB_CONTEXT:?set WEB_CONTEXT in .env}
       args:
-        API_INTERNAL_URL: http://api:4000
-    environment:
-      API_INTERNAL_URL: http://api:4000
+        API_INTERNAL_URL: ${API_INTERNAL_URL:?set API_INTERNAL_URL in .env}
     depends_on:
       api:
         condition: service_healthy
