@@ -21,7 +21,7 @@ import {
   verifySummary,
   type ReviewScope,
 } from '../grounding/verifier.js';
-import { PermanentError } from '../jobs/job-errors.js';
+import { PermanentError, TransientError } from '../jobs/job-errors.js';
 import type { SectionRewrite, SectionSnapshot } from '../llm/llm-client.js';
 import {
   clampLine,
@@ -270,7 +270,7 @@ export function applySectionRewrite(
 const entryKey = (...names: string[]) => JSON.stringify(names.map((n) => n.toLowerCase()));
 
 const emptyRewrite = () =>
-  new PermanentError('LLM_INVALID_OUTPUT', 'The rewrite returned no usable entry');
+  new TransientError('The rewrite returned no usable entry', 'LLM_INVALID_OUTPUT');
 
 /** The rewritten version of an existing entry: same id, unchanged bullets keep their ids. */
 function rewriteEntry(

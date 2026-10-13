@@ -50,21 +50,23 @@ function message(stopReason: string, content: Content): BetaMessage {
 const text = (value: string) => ({ type: 'text', text: value }) as Content[number];
 
 function setup(responses: BetaMessage[], config: Partial<AppConfig['llm']> = {}) {
-  const create = vi.fn();
-  for (const response of responses) create.mockResolvedValueOnce(response);
-  const sdk = { beta: { messages: { create } } } as unknown as Anthropic;
+  const stream = vi.fn();
+  for (const response of responses) {
+    stream.mockReturnValueOnce({ finalMessage: () => Promise.resolve(response) });
+  }
+  const sdk = { beta: { messages: { stream } } } as unknown as Anthropic;
   const client = new AnthropicLlmClient({ ...CONFIG, ...config }, createLogger('silent'), sdk);
-  return { client, create };
+  return { client, stream };
 }
 
 const INPUT = { sourceText: 'Jane, Engineer', targetRole: 'Backend Engineer' };
 
 describe('AnthropicLlmClient.draftCv', () => {
-  it('requests structured output with effort, a cached system prompt and the fallback beta', async () => {
-    const { client, create } = setup([message('end_turn', [text(JSON.stringify(DRAFT))])]);
+  it('streams structured output with effort, cache breakpoints and the fallback beta', async () => {
+    const { client, stream } = setup([message('end_turn', [text(JSON.stringify(DRAFT))])]);
     await expect(client.draftCv(INPUT)).resolves.toEqual(DRAFT);
 
-    const [params] = create.mock.calls[0] as [Record<string, unknown>];
+    const [params] = stream.mock.calls[0] as [Record<string, unknown>];
     expect(params).toMatchObject({
       model: 'claude-opus-5-5',
       max_tokens: 16_000,
@@ -76,16 +78,20 @@ describe('AnthropicLlmClient.draftCv', () => {
     // Thinking is always on for this model; sending a config for it would be a 400.
     expect(params).not.toHaveProperty('thinking');
     expect(params).not.toHaveProperty('tool_choice');
-    const userContent = (params.messages as { content: string }[])[0]!.content;
-    expect(userContent).toContain('<source_document>\nJane, Engineer\n</source_document>');
+    const [context, task] = (
+      params.messages as { content: { text: string; cache_control?: unknown }[] }[]
+    )[0]!.content;
+    expect(context!.text).toContain('<source_document>\nJane, Engineer\n</source_document>');
+    expect(context!.cache_control).toEqual({ type: 'ephemeral' });
+    expect(task!.cache_control).toBeUndefined();
   });
 
   it('can switch the server-side fallback off', async () => {
-    const { client, create } = setup([message('end_turn', [text(JSON.stringify(DRAFT))])], {
+    const { client, stream } = setup([message('end_turn', [text(JSON.stringify(DRAFT))])], {
       fallbacks: false,
     });
     await client.draftCv(INPUT);
-    const [params] = create.mock.calls[0] as [Record<string, unknown>];
+    const [params] = stream.mock.calls[0] as [Record<string, unknown>];
     expect(params).not.toHaveProperty('betas');
     expect(params).not.toHaveProperty('fallbacks');
   });
@@ -99,13 +105,13 @@ describe('AnthropicLlmClient.draftCv', () => {
   });
 
   it('retries once with a larger budget when the output was cut off', async () => {
-    const { client, create } = setup([
+    const { client, stream } = setup([
       message('max_tokens', [text('{"contact":')]),
       message('end_turn', [text(JSON.stringify(DRAFT))]),
     ]);
     await expect(client.draftCv(INPUT)).resolves.toEqual(DRAFT);
-    expect(create).toHaveBeenCalledTimes(2);
-    expect((create.mock.calls[1] as [{ max_tokens: number }])[0].max_tokens).toBe(32_000);
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect((stream.mock.calls[1] as [{ max_tokens: number }])[0].max_tokens).toBe(32_000);
   });
 
   it('fails with LLM_INVALID_OUTPUT when the output is cut off twice', async () => {
@@ -116,13 +122,15 @@ describe('AnthropicLlmClient.draftCv', () => {
     await expect(client.draftCv(INPUT)).rejects.toMatchObject({ code: 'LLM_INVALID_OUTPUT' });
   });
 
-  it('rejects output that is not valid JSON or does not match the schema', async () => {
+  it('reports invalid JSON or a schema mismatch as a retryable LLM_INVALID_OUTPUT', async () => {
     const notJson = setup([message('end_turn', [text('Sure! Here is your CV')])]);
     await expect(notJson.client.draftCv(INPUT)).rejects.toMatchObject({
+      name: 'TransientError',
       code: 'LLM_INVALID_OUTPUT',
     });
     const wrongShape = setup([message('end_turn', [text('{"contact": {}}')])]);
     await expect(wrongShape.client.draftCv(INPUT)).rejects.toMatchObject({
+      name: 'TransientError',
       code: 'LLM_INVALID_OUTPUT',
     });
   });
@@ -147,14 +155,16 @@ describe('AnthropicLlmClient.draftCv', () => {
   it('passes the abort signal to the SDK and surfaces its reason', async () => {
     const controller = new AbortController();
     const reason = new Error('worker stopping');
-    const create = vi.fn().mockImplementation(() => {
-      controller.abort(reason);
-      return Promise.reject(new Error('Request was aborted.'));
-    });
-    const sdk = { beta: { messages: { create } } } as unknown as Anthropic;
+    const stream = vi.fn().mockImplementation(() => ({
+      finalMessage: () => {
+        controller.abort(reason);
+        return Promise.reject(new Error('Request was aborted.'));
+      },
+    }));
+    const sdk = { beta: { messages: { stream } } } as unknown as Anthropic;
     const client = new AnthropicLlmClient(CONFIG, createLogger('silent'), sdk);
     await expect(client.draftCv(INPUT, { signal: controller.signal })).rejects.toBe(reason);
-    expect((create.mock.calls[0] as [unknown, { signal: AbortSignal }])[1].signal).toBe(
+    expect((stream.mock.calls[0] as [unknown, { signal: AbortSignal }])[1].signal).toBe(
       controller.signal,
     );
   });
@@ -162,11 +172,11 @@ describe('AnthropicLlmClient.draftCv', () => {
 
 describe('AnthropicLlmClient.transcribePdf', () => {
   it('sends the PDF as a base64 document block before the instruction, without a schema', async () => {
-    const { client, create } = setup([message('end_turn', [text('Jane Doe\nEngineer')])]);
+    const { client, stream } = setup([message('end_turn', [text('Jane Doe\nEngineer')])]);
     await expect(client.transcribePdf(Buffer.from('%PDF-1.7 test'))).resolves.toBe(
       'Jane Doe\nEngineer',
     );
-    const [params] = create.mock.calls[0] as [
+    const [params] = stream.mock.calls[0] as [
       { messages: { content: { type: string; source?: { data: string } }[] }[] },
     ];
     const blocks = params.messages[0]!.content;

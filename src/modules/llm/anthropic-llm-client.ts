@@ -3,7 +3,7 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import type {
   BetaContentBlockParam,
   BetaMessage,
-  MessageCreateParamsNonStreaming,
+  BetaMessageStreamParams,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 import type { z } from 'zod';
 import type { AppConfig, LlmEffort } from '../../config/config.js';
@@ -19,8 +19,9 @@ import {
   CV_SYSTEM_PROMPT,
   TRANSCRIBE_PROMPT,
   TRANSCRIBE_SYSTEM_PROMPT,
+  type PromptParts,
 } from '../generation/prompts.js';
-import { PermanentError } from '../jobs/job-errors.js';
+import { PermanentError, TransientError } from '../jobs/job-errors.js';
 import { toJobError } from './anthropic-errors.js';
 import type {
   DraftCvInput,
@@ -33,12 +34,10 @@ import type {
 /** Beta header for `fallbacks: "default"` (server-side retry on another model after a refusal). */
 export const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
-/**
- * Non-streaming responses only arrive once the whole answer (thinking included) is generated,
- * so the timeout must cover a full CV draft, not just the first byte.
- */
-const REQUEST_TIMEOUT_MS = 300_000;
-const SDK_MAX_RETRIES = 2;
+// Responses are streamed, so the SDK timeout only covers the wait for response headers; the job
+// worker's attempt deadline bounds the whole call. The queue owns retries with longer backoff.
+const REQUEST_TIMEOUT_MS = 120_000;
+const SDK_MAX_RETRIES = 1;
 
 /** Output budget, thinking included. A response cut off at the limit is retried once, larger. */
 interface TokenBudget {
@@ -133,13 +132,17 @@ export class AnthropicLlmClient implements LlmClient {
 
   private async generateStructured<S extends z.ZodType>(
     schema: S,
-    prompt: string,
+    prompt: PromptParts,
     budget: TokenBudget,
     options: LlmCallOptions,
   ): Promise<z.output<S>> {
     const { schema: jsonSchema } = betaZodOutputFormat(schema);
+    const content: BetaContentBlockParam[] = [
+      { type: 'text', text: prompt.context, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: prompt.task },
+    ];
     const text = await this.generateText(
-      { system: CV_SYSTEM_PROMPT, content: prompt, effort: this.config.effort, schema: jsonSchema },
+      { system: CV_SYSTEM_PROMPT, content, effort: this.config.effort, schema: jsonSchema },
       budget,
       options,
     );
@@ -148,13 +151,13 @@ export class AnthropicLlmClient implements LlmClient {
       json = JSON.parse(text);
     } catch {
       // No `cause`: V8's SyntaxError quotes the input, i.e. CV content, and causes are logged.
-      throw new PermanentError('LLM_INVALID_OUTPUT', 'Structured output is not valid JSON');
+      throw new TransientError('Structured output is not valid JSON', 'LLM_INVALID_OUTPUT');
     }
     const parsed = schema.safeParse(json);
     if (!parsed.success) {
-      throw new PermanentError(
-        'LLM_INVALID_OUTPUT',
+      throw new TransientError(
         `Structured output does not match the schema: ${parsed.error.message.slice(0, 500)}`,
+        'LLM_INVALID_OUTPUT',
       );
     }
     return parsed.data;
@@ -185,7 +188,9 @@ export class AnthropicLlmClient implements LlmClient {
           `Claude declined the request (category: ${message.stop_details?.category ?? 'unknown'})`,
         );
       case 'max_tokens':
-        throw new PermanentError('LLM_INVALID_OUTPUT', 'Output exceeded the token budget twice');
+        throw new PermanentError('LLM_INVALID_OUTPUT', 'Output exceeded the token budget twice', {
+          userMessage: 'This source is too long for the AI to turn into a CV in one go.',
+        });
       default:
         throw new PermanentError(
           'LLM_INVALID_OUTPUT',
@@ -195,7 +200,7 @@ export class AnthropicLlmClient implements LlmClient {
 
     const text = finalText(message);
     if (text.trim() === '') {
-      throw new PermanentError('LLM_INVALID_OUTPUT', 'Claude returned no text');
+      throw new TransientError('Claude returned no text', 'LLM_INVALID_OUTPUT');
     }
     return text;
   }
@@ -206,7 +211,7 @@ export class AnthropicLlmClient implements LlmClient {
         userMessage: NOT_CONFIGURED_MESSAGE,
       });
     }
-    const params: MessageCreateParamsNonStreaming = {
+    const params: BetaMessageStreamParams = {
       model: this.config.model,
       max_tokens: maxTokens,
       // Stable prefix: cached across calls (drafts, rewrites) for five minutes.
@@ -220,7 +225,7 @@ export class AnthropicLlmClient implements LlmClient {
     };
     const startedAt = Date.now();
     try {
-      const message = await this.client.beta.messages.create(params, { signal });
+      const message = await this.client.beta.messages.stream(params, { signal }).finalMessage();
       this.logger.info(
         {
           model: message.model,

@@ -5,9 +5,7 @@ const KEY_REJECTED_MESSAGE =
   'AI generation is not configured correctly on the server (the API key was rejected).';
 
 /**
- * Maps an error thrown by the Anthropic SDK onto the job error taxonomy. The SDK has already
- * retried 429/5xx/connection errors (maxRetries), so these surface only after its own retries;
- * the job queue then retries the whole step later with a longer backoff.
+ * Maps an SDK error onto the job error taxonomy; transient ones are retried by the job queue.
  * An abort caused by our own signal is passed through as the signal's reason.
  */
 export function toJobError(err: unknown, signal?: AbortSignal): unknown {
@@ -61,6 +59,12 @@ export function toJobError(err: unknown, signal?: AbortSignal): unknown {
     });
   }
   if (err instanceof Anthropic.APIError) {
+    if (err.status === undefined) {
+      // An `error` event in the middle of a stream (e.g. overloaded_error): the call broke off.
+      return new TransientError(`Anthropic stream error: ${err.message}`, 'LLM_UNAVAILABLE', {
+        cause: err,
+      });
+    }
     if (err.status === 402) {
       return new PermanentError('LLM_NOT_CONFIGURED', `Anthropic billing error: ${err.message}`, {
         cause: err,

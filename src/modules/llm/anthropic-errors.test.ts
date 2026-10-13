@@ -16,6 +16,10 @@ describe('toJobError', () => {
     ],
     ['connection error', new Anthropic.APIConnectionError({ message: 'socket hang up' })],
     ['timeout', new Anthropic.APIConnectionTimeoutError()],
+    [
+      'error event mid-stream',
+      new Anthropic.APIError(undefined, body('overloaded_error'), undefined, headers),
+    ],
   ])('maps %s to a transient LLM_UNAVAILABLE', (_name, err) => {
     const mapped = toJobError(err);
     expect(mapped).toBeInstanceOf(TransientError);
