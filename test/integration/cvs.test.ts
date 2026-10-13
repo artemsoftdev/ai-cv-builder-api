@@ -348,6 +348,42 @@ describe('DELETE /api/cvs/:id', () => {
   });
 });
 
+describe('DELETE while a job completes', () => {
+  async function waitForLockWait(): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const [row] = await ctx.dataSource.query<{ waiting: number }[]>(
+        `SELECT count(*)::int AS waiting FROM pg_stat_activity
+          WHERE wait_event_type = 'Lock' AND datname = current_database()`,
+      );
+      if ((row?.waiting ?? 0) > 0) return;
+      if (Date.now() > deadline) throw new Error('DELETE never waited for the job lock');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  it('waits for the completing transaction instead of deadlocking with it', async () => {
+    const cv = await createCv(ctx.dataSource, alice.userId);
+    const job = await createJob(ctx.dataSource, cv.id, { status: 'running' });
+    const completing = ctx.dataSource.createQueryRunner();
+    await completing.connect();
+    try {
+      // Same lock order as JobWorker.complete(): the job row first, then the CV row.
+      await completing.startTransaction();
+      await completing.query(`UPDATE jobs SET status = 'succeeded' WHERE id = $1`, [job.id]);
+      const deleting = alice.agent.delete(`/api/cvs/${cv.id}`).then((res) => res);
+      await waitForLockWait();
+      await completing.query(`UPDATE cvs SET updated_at = now() WHERE id = $1`, [cv.id]);
+      await completing.commitTransaction();
+      expect((await deleting).status).toBe(204);
+    } finally {
+      if (completing.isTransactionActive) await completing.rollbackTransaction();
+      await completing.release();
+    }
+    expect(await ctx.dataSource.getRepository(CvEntity).countBy({ id: cv.id })).toBe(0);
+  });
+});
+
 describe('POST /api/cvs/:id/questions/:questionId/dismiss', () => {
   it.each(['open', 'failed'] as const)('dismisses a %s question', async (status) => {
     const cv = await createCv(ctx.dataSource, alice.userId);

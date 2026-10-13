@@ -1,6 +1,7 @@
 import type { EntityManager } from 'typeorm';
 import { CvEntity, CvQuestionEntity } from '../../db/entities/index.js';
 import { ACTIVE_JOB_STATUSES } from '../../db/entities/job.entity.js';
+import { runSql } from '../../db/sql.js';
 import type { CvContent } from './cv-content.schema.js';
 import type { CvChanges } from './cv-patch.js';
 import {
@@ -168,8 +169,17 @@ export class CvRepository {
     return result.affected === 1;
   }
 
-  /** Deletes the CV with its questions and jobs (FK cascade). */
+  /**
+   * Run inside a transaction. Jobs go first: a completing job locks its job row and then the CV
+   * row, so deleting the CV first (cascading to jobs) would take them in the opposite order.
+   */
   async deleteOwned(userId: string, cvId: string): Promise<boolean> {
+    await runSql(
+      this.manager,
+      `DELETE FROM jobs
+        WHERE cv_id = $1 AND EXISTS (SELECT 1 FROM cvs WHERE cvs.id = $1 AND cvs.user_id = $2)`,
+      [cvId, userId],
+    );
     const result = await this.manager.delete(CvEntity, { id: cvId, userId });
     return result.affected === 1;
   }

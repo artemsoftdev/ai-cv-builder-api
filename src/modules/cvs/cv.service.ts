@@ -60,7 +60,9 @@ export class CvService {
   }
 
   async delete(userId: string, cvId: string): Promise<void> {
-    const deleted = await new CvRepository(this.dataSource.manager).deleteOwned(userId, cvId);
+    const deleted = await this.dataSource.transaction((manager) =>
+      new CvRepository(manager).deleteOwned(userId, cvId),
+    );
     if (!deleted) throw notFound('CV');
   }
 
