@@ -1,4 +1,6 @@
-import { extractLinks, extractText, getDocumentProxy } from 'unpdf';
+import { extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import { SOURCE_LIMITS } from './source-text.js';
 
 /** A PDF we cannot (or will not) read; `userMessage` is safe to show. */
@@ -15,67 +17,122 @@ export class PdfUnreadableError extends Error {
 export interface ExtractedPdf {
   text: string;
   pages: number;
-  /** URLs of link annotations: often a "GitHub" label whose URL is not in the text itself. */
+  /** URLs of link annotations, e.g. a "GitHub" label whose URL is not in the text. */
   links: string[];
+}
+
+export interface PdfWorkerInput {
+  bytes: Uint8Array;
+  maxPages: number;
+}
+
+export type PdfWorkerResult =
+  | { ok: true; text: string; pages: number; links: string[] }
+  | { ok: false; reason: 'too_many_pages'; pages: number }
+  | { ok: false; reason: 'error'; errorName: string };
+
+export interface ExtractOptions {
+  timeoutMs?: number;
+  maxPages?: number;
+  maxHeapMb?: number;
 }
 
 const PDF_MAGIC = Buffer.from('%PDF-', 'ascii');
 const MAX_LINKS = 20;
 const SAFE_LINK_RE = /^(?:https?:|mailto:)/i;
+const MAX_CONCURRENT_PARSES = 2;
+const WORKER_URL = new URL(
+  `./pdf-text.worker${extname(fileURLToPath(import.meta.url))}`,
+  import.meta.url,
+);
 
 /** Checked on the bytes, not on the file name or the client's content type. */
 export function isPdf(bytes: Buffer): boolean {
   return bytes.subarray(0, PDF_MAGIC.length).equals(PDF_MAGIC);
 }
 
-/**
- * Reads the text layer of a PDF with pdf.js (via unpdf), refusing encrypted, broken or too
- * long documents. The parse runs in-process, so it is bounded by the upload size, the page
- * limit and a timeout.
- */
-export async function extractPdfText(
-  bytes: Buffer,
-  {
-    timeoutMs = 10_000,
-    maxPages = SOURCE_LIMITS.pdfPages,
-  }: { timeoutMs?: number; maxPages?: number } = {},
-): Promise<ExtractedPdf> {
-  // pdf.js may detach the buffer it is given, so it gets a copy.
-  const loading = getDocumentProxy(new Uint8Array(bytes), {
-    verbosity: 0, // errors only; warnings would go to stdout
-  });
-  const read = (async (): Promise<ExtractedPdf> => {
-    const doc = await loading;
-    if (doc.numPages > maxPages) {
-      throw new PdfUnreadableError(
-        `This PDF has ${doc.numPages} pages; at most ${maxPages} are supported.`,
-      );
-    }
-    const { text } = await extractText(doc, { mergePages: true });
-    const { links } = await extractLinks(doc);
-    return { text, pages: doc.numPages, links: safeLinks(links) };
-  })();
+let activeParses = 0;
+const waitingParses: (() => void)[] = [];
 
-  let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new PdfUnreadableError('This PDF took too long to read.')),
+async function withParseSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (activeParses >= MAX_CONCURRENT_PARSES) {
+    await new Promise<void>((resolve) => waitingParses.push(resolve));
+  } else {
+    activeParses++;
+  }
+  try {
+    return await work();
+  } finally {
+    const next = waitingParses.shift();
+    if (next) next();
+    else activeParses--;
+  }
+}
+
+/**
+ * Reads the text layer with pdf.js in a worker thread: a crafted PDF (a decompression bomb, a
+ * huge object graph) is stopped by the heap limit or terminated at the deadline instead of
+ * blocking the API's event loop.
+ */
+export function extractPdfText(
+  bytes: Buffer,
+  { timeoutMs = 10_000, maxPages = SOURCE_LIMITS.pdfPages, maxHeapMb = 256 }: ExtractOptions = {},
+): Promise<ExtractedPdf> {
+  return withParseSlot(() => runWorker(bytes, { timeoutMs, maxPages, maxHeapMb }));
+}
+
+function runWorker(
+  bytes: Buffer,
+  { timeoutMs, maxPages, maxHeapMb }: Required<ExtractOptions>,
+): Promise<ExtractedPdf> {
+  return new Promise((resolve, reject) => {
+    const copy = new Uint8Array(bytes);
+    const worker = new Worker(WORKER_URL, {
+      workerData: { bytes: copy, maxPages } satisfies PdfWorkerInput,
+      transferList: [copy.buffer],
+      resourceLimits: { maxOldGenerationSizeMb: maxHeapMb, maxYoungGenerationSizeMb: 32 },
+    });
+    let settled = false;
+    const settle = (outcome: ExtractedPdf | PdfUnreadableError) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      void worker.terminate();
+      if (outcome instanceof PdfUnreadableError) reject(outcome);
+      else resolve(outcome);
+    };
+    const timer = setTimeout(
+      () => settle(new PdfUnreadableError('This PDF took too long to read.')),
       timeoutMs,
     );
+    worker.once('message', (result: PdfWorkerResult) => settle(fromWorker(result, maxPages)));
+    worker.once('error', (err: Error) => settle(fromWorkerError(err)));
+    worker.once('exit', () => settle(new PdfUnreadableError('We could not read this PDF.')));
   });
-  try {
-    return await Promise.race([read, timeout]);
-  } catch (err) {
-    throw toUnreadable(err);
-  } finally {
-    clearTimeout(timer);
-    // Free pdf.js resources once reading has settled (even after a timeout).
-    void read
-      .catch(() => undefined)
-      .then(() => loading)
-      .then((doc) => doc.loadingTask.destroy())
-      .catch(() => undefined);
+}
+
+function fromWorker(result: PdfWorkerResult, maxPages: number): ExtractedPdf | PdfUnreadableError {
+  if (result.ok) return { text: result.text, pages: result.pages, links: safeLinks(result.links) };
+  if (result.reason === 'too_many_pages') {
+    return new PdfUnreadableError(
+      `This PDF has ${result.pages} pages; at most ${maxPages} are supported.`,
+    );
   }
+  if (result.errorName === 'PasswordException') {
+    return new PdfUnreadableError('This PDF is password-protected.');
+  }
+  if (result.errorName === 'InvalidPDFException') {
+    return new PdfUnreadableError('This PDF is damaged or not a valid PDF.');
+  }
+  return new PdfUnreadableError('We could not read this PDF.');
+}
+
+function fromWorkerError(err: Error): PdfUnreadableError {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === 'ERR_WORKER_OUT_OF_MEMORY') {
+    return new PdfUnreadableError('This PDF is too complex to read.', { cause: err });
+  }
+  return new PdfUnreadableError('We could not read this PDF.', { cause: err });
 }
 
 function safeLinks(links: string[]): string[] {
@@ -85,16 +142,4 @@ function safeLinks(links: string[]): string[] {
       .filter((link) => SAFE_LINK_RE.test(link) && link.length <= 300),
   );
   return [...unique].slice(0, MAX_LINKS);
-}
-
-function toUnreadable(err: unknown): PdfUnreadableError {
-  if (err instanceof PdfUnreadableError) return err;
-  const name = err instanceof Error ? err.name : '';
-  if (name === 'PasswordException') {
-    return new PdfUnreadableError('This PDF is password-protected.', { cause: err });
-  }
-  if (name === 'InvalidPDFException') {
-    return new PdfUnreadableError('This PDF is damaged or not a valid PDF.', { cause: err });
-  }
-  return new PdfUnreadableError('We could not read this PDF.', { cause: err });
 }

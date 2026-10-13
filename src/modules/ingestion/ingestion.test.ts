@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makePdf, makeScannedPdf } from '../../../test/helpers/pdf.js';
+import { makeFlateBombPdf, makePdf, makeScannedPdf } from '../../../test/helpers/pdf.js';
 import { extractPdfText, isPdf, PdfUnreadableError } from './pdf-text.js';
 import { countNonWhitespace, normalizeSourceText } from './source-text.js';
 import { safeFilename } from './upload.js';
@@ -64,6 +64,30 @@ describe('extractPdfText', () => {
   it('returns an empty text layer for a scan', async () => {
     const result = await extractPdfText(await makeScannedPdf());
     expect(countNonWhitespace(result.text)).toBe(0);
+  });
+
+  it('stops a decompression bomb at the deadline without blocking the event loop', async () => {
+    const bomb = await makeFlateBombPdf(60);
+    expect(bomb.length).toBeLessThan(300_000);
+    let ticks = 0;
+    const ticker = setInterval(() => ticks++, 10);
+    const startedAt = Date.now();
+    try {
+      await expect(extractPdfText(bomb, { timeoutMs: 400 })).rejects.toThrow(
+        new PdfUnreadableError('This PDF took too long to read.'),
+      );
+    } finally {
+      clearInterval(ticker);
+    }
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(ticks).toBeGreaterThan(15);
+  });
+
+  it('rejects a PDF whose parse exceeds the heap limit', async () => {
+    const bomb = await makeFlateBombPdf(60);
+    await expect(extractPdfText(bomb, { maxHeapMb: 16, timeoutMs: 30_000 })).rejects.toThrow(
+      new PdfUnreadableError('This PDF is too complex to read.'),
+    );
   });
 
   it('rejects too many pages and damaged files with a user-facing message', async () => {

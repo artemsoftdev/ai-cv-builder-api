@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { deflateSync } from 'node:zlib';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFDocument, PDFName, PDFString, rgb, StandardFonts, type PDFFont } from 'pdf-lib';
 import { extractLinks, extractText, getDocumentProxy, getMeta } from 'unpdf';
@@ -45,6 +46,21 @@ export async function makePdf(
       page.node.set(PDFName.of('Annots'), doc.context.obj([link]));
     }
   }
+  return Buffer.from(await doc.save());
+}
+
+/** A tiny one-page PDF whose Flate content stream inflates to `inflatedMb` of text operators. */
+export async function makeFlateBombPdf(inflatedMb: number): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([595, 842]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const key = page.node.newFontDictionary('F', font.ref);
+  const op = `BT ${key.toString()} 12 Tf 50 700 Td (x) Tj ET\n`;
+  const ops = op.repeat(Math.ceil((inflatedMb * 1024 * 1024) / op.length));
+  const stream = doc.context.stream(deflateSync(Buffer.from(ops), { level: 9 }), {
+    Filter: 'FlateDecode',
+  });
+  page.node.set(PDFName.of('Contents'), doc.context.register(stream));
   return Buffer.from(await doc.save());
 }
 
