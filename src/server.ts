@@ -5,8 +5,13 @@ import { runMigrations, waitForDatabase } from './db/bootstrap.js';
 import { createDataSource } from './db/data-source.js';
 import { createApp } from './http/app.js';
 import { createLogger } from './logger.js';
+import { createJobHandlers } from './modules/generation/job-handlers.js';
+import { JobWorker } from './modules/jobs/worker.js';
+import { createLlmClient } from './modules/llm/create-llm-client.js';
 
-const SHUTDOWN_TIMEOUT_MS = 10_000;
+/** Running jobs get WORKER_SHUTDOWN_GRACE_MS to finish; HTTP draining and the DB need a bit more. */
+const WORKER_SHUTDOWN_GRACE_MS = 25_000;
+const SHUTDOWN_TIMEOUT_MS = WORKER_SHUTDOWN_GRACE_MS + 10_000;
 
 function loadConfigOrExit(): AppConfig {
   try {
@@ -45,7 +50,24 @@ async function main(): Promise<void> {
       'API listening',
     );
   });
-  // Part 2: start the job worker here, and stop it in shutdown() before the database closes.
+
+  // The worker runs in this process and shares the connection pool. With WORKER_ENABLED=false
+  // jobs simply stay queued until a process with a worker picks them up.
+  const worker = config.worker.enabled
+    ? new JobWorker(
+        {
+          dataSource,
+          logger: logger.child({ component: 'worker' }),
+          handlers: createJobHandlers({
+            dataSource,
+            llm: createLlmClient(config.llm, logger),
+            logger: logger.child({ component: 'generation' }),
+          }),
+        },
+        { concurrency: config.worker.concurrency, shutdownGraceMs: WORKER_SHUTDOWN_GRACE_MS },
+      )
+    : null;
+  worker?.start();
 
   let shuttingDown = false;
   const shutdown = async (reason: string, exitCode: number): Promise<void> => {
@@ -58,7 +80,10 @@ async function main(): Promise<void> {
     }, SHUTDOWN_TIMEOUT_MS);
     forceExit.unref();
     try {
+      // Order matters: no new requests, then no new jobs (running ones finish or are handed
+      // back to the queue), then close the pool both of them use.
       await closeServer(server);
+      await worker?.stop();
       await dataSource.destroy();
       logger.info('Shutdown complete');
       process.exit(exitCode);
