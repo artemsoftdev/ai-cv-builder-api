@@ -42,6 +42,20 @@ describe('FakeLlmClient', () => {
     expect(review.removed).toEqual([]);
   });
 
+  it('does not take a date range for a phone number', async () => {
+    const llm = new FakeLlmClient();
+    const undated = await llm.draftCv({
+      sourceText: `${SOURCE}\nDeveloper at Initech (2016 - 2019)`,
+      targetRole: 'Backend Engineer',
+    });
+    expect(undated.contact.phone).toBe('');
+    const withPhone = await llm.draftCv({
+      sourceText: `${SOURCE}\nPhone: +49 151 2345 6789`,
+      targetRole: 'Backend Engineer',
+    });
+    expect(withPhone.contact.phone).toBe('+49 151 2345 6789');
+  });
+
   it('uses per-method overrides, including thrown errors', async () => {
     const llm = new FakeLlmClient({
       overrides: {

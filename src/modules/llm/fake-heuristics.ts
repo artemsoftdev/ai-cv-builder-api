@@ -9,7 +9,7 @@ import type {
 import type { DraftCvInput, RewriteSectionInput, SectionRewrite } from './llm-client.js';
 
 const EMAIL_RE = /[\w.%+-]+@[\w-]+(?:\.[\w-]+)*\.[a-z]{2,}/i;
-const PHONE_RE = /\+?\d[\d ().-]{6,}\d/;
+const PHONE_RE = /\+?\d[\d ().-]{6,}\d/g;
 const URL_SOURCE = String.raw`\b(?:https?://|www\.)[^\s<>()]+|\b(?:github|gitlab|linkedin)\.com/[^\s<>()]+`;
 const URL_RE = new RegExp(URL_SOURCE, 'gi');
 const HAS_URL_RE = new RegExp(URL_SOURCE, 'i');
@@ -36,6 +36,12 @@ Skills: Node.js, TypeScript, PostgreSQL, Docker`;
 
 function words(text: string): string[] {
   return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+// "(2016 - 2019)" has the shape of a phone number too.
+function findPhone(text: string): string {
+  const candidates = (text.match(PHONE_RE) ?? []).map((match) => match.trim());
+  return candidates.find((candidate) => !DATE_RANGE_RE.test(candidate)) ?? '';
 }
 
 function leadingQuote(text: string, count = 8): string {
@@ -81,7 +87,7 @@ export function heuristicDraft({ sourceText, targetRole }: DraftCvInput): DraftC
     .map((line) => line.trim())
     .filter(Boolean);
   const email = EMAIL_RE.exec(sourceText)?.[0] ?? '';
-  const phone = PHONE_RE.exec(sourceText)?.[0].trim() ?? '';
+  const phone = findPhone(sourceText);
   const urls = [...new Set(sourceText.match(URL_RE) ?? [])].slice(0, 5);
   const fullName = lines[0] && NAME_RE.test(lines[0]) ? lines[0] : '';
 
@@ -220,7 +226,7 @@ export function heuristicRewrite(input: RewriteSectionInput): SectionRewrite {
   switch (input.section) {
     case 'contact': {
       const email = EMAIL_RE.exec(answer)?.[0];
-      const phone = PHONE_RE.exec(answer)?.[0].trim();
+      const phone = findPhone(answer);
       const urls = answer.match(URL_RE) ?? [];
       const { current } = input;
       return {
@@ -228,7 +234,7 @@ export function heuristicRewrite(input: RewriteSectionInput): SectionRewrite {
         data: {
           ...current,
           email: email ?? current.email,
-          phone: phone ?? current.phone,
+          phone: phone || current.phone,
           location: !email && !phone && urls.length === 0 ? answer.slice(0, 100) : current.location,
           links: [...current.links, ...urls.map((url) => ({ label: linkLabel(url), url }))],
         },
