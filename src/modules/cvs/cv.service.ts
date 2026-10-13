@@ -5,7 +5,7 @@ import { toCvDto, toCvSummaryDto } from './cv.mapper.js';
 import { CvRepository } from './cv.repository.js';
 import { ACTIONABLE_QUESTION_STATUSES, type CvDto, type CvSummaryDto } from './cv.types.js';
 
-const cvBusy = () =>
+export const cvBusy = () =>
   new AppError('CV_BUSY', 'The AI is still working on this CV. Try again when it has finished.');
 
 const versionConflict = (currentVersion: number) =>
