@@ -65,9 +65,55 @@ describe('Corpus', () => {
     expect(corpus.hasTerm('Type Script')).toBe(true);
     expect(corpus.hasTerm('CICD')).toBe(true);
     expect(corpus.hasTerm('C++')).toBe(true);
-    expect(corpus.hasTerm('Postgres')).toBe(false); // renamed, not mentioned
+    expect(corpus.hasTerm('Postgres')).toBe(true); // alias of PostgreSQL
     expect(corpus.hasTerm('Java')).toBe(false); // must not match inside "JavaScript"-like words
     expect(corpus.hasTerm('Kubernetes')).toBe(false);
+  });
+
+  it('does not ground short terms in hyphenated or ampersand words', () => {
+    const goTo = new Corpus("I'm the go-to person for R&D and C-level reports");
+    expect(goTo.hasTerm('Go')).toBe(false);
+    expect(goTo.hasTerm('R')).toBe(false);
+    expect(goTo.hasTerm('C')).toBe(false);
+    expect(new Corpus('Kubernetes, Golang').hasTerm('K8s')).toBe(true);
+    expect(new Corpus('Kubernetes, Golang').hasTerm('Go')).toBe(true);
+  });
+
+  it('matches quotes on word boundaries only, in order, and needs more than one short word', () => {
+    const tickets = new Corpus('Handled support tickets for the billing team');
+    expect(tickets.hasQuote('led')).toBe(false);
+    expect(tickets.hasQuote('andled support')).toBe(false);
+    expect(tickets.hasQuote('support tickets')).toBe(true);
+    expect(tickets.hasQuote('billing team ... support tickets')).toBe(false);
+    expect(tickets.hasQuote('Handled ... billing team')).toBe(true);
+  });
+
+  it('finds emails and links glued to labels, separators and icon glyphs', () => {
+    const icon = String.fromCharCode(0xe001);
+    const glued = new Corpus(`E-mail:jane@x.com|github.com/jane ${icon}joe@y.org`);
+    expect(glued.hasEmail('jane@x.com')).toBe(true);
+    expect(glued.hasEmail('joe@y.org')).toBe(true);
+    expect(glued.hasUrl('https://github.com/jane')).toBe(true);
+    expect(glued.hasUrl('github.com/ja')).toBe(false);
+  });
+
+  it('tolerates inflection outside English, and English plurals', () => {
+    const ru = new Corpus('Работал старшим разработчиком в Яндексе, живу в Москве');
+    expect(ru.hasWordLike('яндекс')).toBe(true);
+    expect(ru.hasWordLike('москва')).toBe(true);
+    expect(ru.hasWordLike('старший')).toBe(true);
+    expect(ru.hasWordLike('мск')).toBe(false);
+    const en = new Corpus('Built REST APIs');
+    expect(en.hasWordLike('api')).toBe(true);
+    expect(en.hasWordLike('apis')).toBe(true);
+    expect(en.hasWordLike('ap')).toBe(false);
+  });
+
+  it('remembers text the user confirmed verbatim', () => {
+    const withFacts = new Corpus(SOURCE, [], ['Cut cloud costs by 12%']);
+    expect(withFacts.isConfirmed('  cut cloud costs by 12%. ')).toBe(true);
+    expect(withFacts.isConfirmed('Cut cloud costs')).toBe(false);
+    expect(withFacts.hasNumber('12')).toBe(true);
   });
 
   it('matches emails, phones and links exactly', () => {

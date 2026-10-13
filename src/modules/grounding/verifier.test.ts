@@ -155,7 +155,10 @@ describe('numbers', () => {
       corpus,
     );
     expect(reasonsFor(review, 'summary')).toEqual([REASONS.number('10')]);
-    expect(reasonsFor(review, 'headline')).toEqual([REASONS.number('1')]);
+    expect(reasonsFor(review, 'headline')).toEqual([
+      REASONS.number('1'),
+      REASONS.entity('Headline', 'Top 1% Backend Engineer'),
+    ]);
 
     const item = verifyExperienceItem(experience({ startDate: 'Mar 2018' }), goodEvidence, corpus);
     expect(reasonsFor(item, 'exp-1')).toEqual([REASONS.number('2018')]);
@@ -396,5 +399,267 @@ describe('replaceReviewPart', () => {
       removed: [{ field: 'contact.email', value: 'a@b.c', reason: 'keep' }],
       evidence: { summary: ['keep'], 'b-1': ['new quote'] },
     });
+  });
+});
+
+describe('named terms in prose', () => {
+  const java = new Corpus('Software engineer at Acme. Worked on the billing service in Java.');
+
+  it('flags technologies, employers and acronyms the source never mentions', () => {
+    const item = experience({
+      company: 'Acme',
+      title: 'Software engineer',
+      startDate: '',
+      endDate: '',
+      bullets: [
+        {
+          id: 'b-1',
+          text: 'Built billing microservices in Java, Kubernetes and Kafka on AWS for Google',
+        },
+      ],
+    });
+    const review = verifyExperienceItem(item, { 'b-1': ['billing service'] }, java);
+    expect(reasonsFor(review, 'b-1')).toEqual([
+      REASONS.terms(['Kubernetes', 'Kafka', 'AWS', 'Google']),
+    ]);
+  });
+
+  it('catches lowercase mentions of skills the model listed', () => {
+    const item = experience({
+      company: 'Acme',
+      title: 'Software engineer',
+      startDate: '',
+      endDate: '',
+      bullets: [{ id: 'b-1', text: 'Moved the billing service to kubernetes' }],
+    });
+    const review = verifyExperienceItem(item, { 'b-1': ['billing service'] }, java, [
+      'Java',
+      'Kubernetes',
+    ]);
+    expect(reasonsFor(review, 'b-1')).toEqual([REASONS.terms(['Kubernetes'])]);
+  });
+
+  it('accepts plurals, aliases, inflected names and sentence-initial words', () => {
+    const corpus = new Corpus('Работал в Яндексе. Built REST API and PostgreSQL schemas.');
+    const item = experience({
+      company: 'Яндекс',
+      title: '',
+      startDate: '',
+      endDate: '',
+      bullets: [{ id: 'b-1', text: 'Designed REST APIs on Postgres for Яндекс' }],
+    });
+    const review = verifyExperienceItem(item, { 'b-1': ['Built REST API'] }, corpus);
+    expect(review.flags).toEqual([]);
+  });
+});
+
+describe('evidence relevance', () => {
+  const corpus = new Corpus('Handled support tickets. Worked on the tracing service.');
+
+  it('rejects a quote that exists but says nothing about the claim', () => {
+    const item = experience({
+      company: '',
+      title: '',
+      startDate: '',
+      endDate: '',
+      bullets: [{ id: 'b-1', text: 'Designed the distributed tracing platform' }],
+    });
+    for (const quote of ['led', 'Handled support tickets']) {
+      expect(reasonsFor(verifyExperienceItem(item, { 'b-1': [quote] }, corpus), 'b-1')).toEqual([
+        REASONS.noEvidence,
+      ]);
+    }
+    expect(
+      verifyExperienceItem(item, { 'b-1': ['the tracing service'] }, corpus).evidence['b-1'],
+    ).toEqual(['the tracing service']);
+  });
+});
+
+describe('education', () => {
+  const corpus = new Corpus('Bachelor of Science in Computer Science, TU Berlin, 2015');
+  const education = (degree: string, details = '') => ({
+    id: 'edu-1',
+    institution: 'TU Berlin',
+    degree,
+    location: '',
+    startDate: '',
+    endDate: '2015',
+    details,
+  });
+
+  it('flags an upgraded degree level even when most words match', () => {
+    const review = verifyEducationItem(education('Master of Science in Computer Science'), corpus);
+    expect(reasonsFor(review, 'edu-1')).toEqual([REASONS.degreeLevel('master')]);
+    expect(verifyEducationItem(education('B.Sc. Computer Science'), corpus).flags).toEqual([]);
+  });
+
+  it('flags invented honours in the details', () => {
+    const review = verifyEducationItem(
+      education('Bachelor of Science', "Graduated summa cum laude, Dean's list"),
+      corpus,
+    );
+    expect(reasonsFor(review, 'edu-1')).toEqual([
+      REASONS.entity('Details', "Graduated summa cum laude, Dean's list"),
+      REASONS.terms(['Dean']),
+    ]);
+  });
+});
+
+describe('headline', () => {
+  it('flags a headline the source does not back', () => {
+    const corpus = new Corpus('Junior QA tester at Acme');
+    const review = verifySummary(
+      { summary: '', contact: { headline: 'Senior Product Manager' } },
+      {},
+      corpus,
+    );
+    expect(reasonsFor(review, 'headline')).toEqual([
+      REASONS.entity('Headline', 'Senior Product Manager'),
+    ]);
+    expect(
+      reasonsFor(
+        verifySummary({ summary: '', contact: { headline: 'Senior QA Tester' } }, {}, corpus),
+        'headline',
+      ),
+    ).toEqual([REASONS.seniority('senior')]);
+  });
+});
+
+describe('numbers in context', () => {
+  const bullet = (text: string) =>
+    experience({ title: '', startDate: '', endDate: '', bullets: [{ id: 'b-1', text }] });
+
+  it('does not let phone numbers or month numbers ground metrics', () => {
+    const corpus = new Corpus('Jane, +49 30 1234567. Engineer at Acme Payments since 10/2018.');
+    const metric = verifyExperienceItem(
+      bullet('Improved checkout conversion by 30% for a team of 10'),
+      { 'b-1': ['Engineer at Acme Payments'] },
+      corpus,
+    );
+    expect(reasonsFor(metric, 'b-1')).toEqual([
+      REASONS.noEvidence,
+      REASONS.number('30'),
+      REASONS.number('10'),
+    ]);
+  });
+
+  it('checks spelled-out numbers both ways and reads European dates', () => {
+    const corpus = new Corpus('Team lead at Acme Payments, 03.2019 - 05.2021. Mentored 3 juniors.');
+    const review = verifyExperienceItem(
+      experience({
+        title: 'Team lead',
+        startDate: 'March 2019',
+        endDate: 'May 2021',
+        bullets: [{ id: 'b-1', text: 'Mentored three juniors and twelve interns' }],
+      }),
+      { 'b-1': ['Mentored 3 juniors'] },
+      corpus,
+    );
+    expect(reasonsFor(review, 'exp-1')).toEqual([]);
+    expect(reasonsFor(review, 'b-1')).toEqual([REASONS.number('twelve')]);
+  });
+
+  it('treats magnitude suffixes as the same amount', () => {
+    const corpus = new Corpus('Served 10,000 users and saved $1,500,000 at Acme Payments.');
+    const review = verifyExperienceItem(
+      bullet('Served 10K users and saved $1.5M'),
+      { 'b-1': ['Served 10,000 users'] },
+      corpus,
+    );
+    expect(review.flags).toEqual([]);
+  });
+});
+
+describe('inflected languages', () => {
+  it('matches companies, titles and locations in another grammatical case', () => {
+    const corpus = new Corpus(
+      'Иван Петров, живу в Москве. Работал старшим разработчиком в Яндексе. Работал руководителем группы.',
+    );
+    const review = verifyExperienceItem(
+      {
+        id: 'exp-ru',
+        company: 'Яндекс',
+        title: 'Старший разработчик',
+        location: 'Москва',
+        startDate: '',
+        endDate: '',
+        bullets: [{ id: 'b-ru', text: 'Руководил группой разработки' }],
+      },
+      { 'b-ru': ['Работал руководителем группы'] },
+      corpus,
+    );
+    expect(review.flags).toEqual([]);
+    const contact = verifyContact(
+      {
+        ...content().contact,
+        fullName: 'Иван Петров',
+        location: 'Москва',
+        email: '',
+        phone: '',
+        links: [],
+      },
+      corpus,
+    );
+    expect(contact.review.removed).toEqual([]);
+  });
+
+  it('still flags a perfective claim the source does not support', () => {
+    const corpus = new Corpus('Участвовал в проекте миграции');
+    const review = verifySummary(
+      { summary: 'Возглавил проект миграции', contact: { headline: '' } },
+      { summary: ['проекте миграции'] },
+      corpus,
+    );
+    expect(reasonsFor(review, 'summary')).toEqual([REASONS.ownership('возглавил')]);
+  });
+});
+
+describe('ownership verbs', () => {
+  it('flags owned and drove, and ignores "led to" as support', () => {
+    const corpus = new Corpus('Worked on the billing rewrite. The migration led to fewer outages.');
+    const review = verifyExperienceItem(
+      experience({
+        startDate: '',
+        endDate: '',
+        bullets: [
+          { id: 'b-1', text: 'Owned and drove the billing rewrite' },
+          { id: 'b-2', text: 'Led the migration' },
+          { id: 'b-3', text: 'The billing rewrite led to fewer outages' },
+        ],
+      }),
+      {
+        'b-1': ['the billing rewrite'],
+        'b-2': ['The migration led to'],
+        'b-3': ['led to fewer outages'],
+      },
+      corpus,
+    );
+    expect(reasonsFor(review, 'b-1')).toEqual([
+      REASONS.ownership('owned'),
+      REASONS.ownership('drove'),
+    ]);
+    expect(reasonsFor(review, 'b-2')).toEqual([REASONS.ownership('led')]);
+    expect(reasonsFor(review, 'b-3')).toEqual([]);
+  });
+});
+
+describe('text the user confirmed', () => {
+  it('keeps edited contact data and skills and does not re-flag confirmed text', () => {
+    const corpus = new Corpus(
+      SOURCE,
+      [],
+      ['jane.new@mail.com', 'Docker', 'Cut cloud costs by 12% with Terraform'],
+    );
+    const contact = verifyContact({ ...content().contact, email: 'jane.new@mail.com' }, corpus);
+    expect(contact.contact.email).toBe('jane.new@mail.com');
+    expect(
+      verifySkills([{ id: 's', name: 'Tools', items: ['Docker'] }], corpus).skills,
+    ).toHaveLength(1);
+    const review = verifyExperienceItem(
+      experience({ bullets: [{ id: 'b-1', text: 'Cut cloud costs by 12% with Terraform' }] }),
+      {},
+      corpus,
+    );
+    expect(review.flags).toEqual([]);
   });
 });

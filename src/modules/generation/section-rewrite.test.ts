@@ -126,7 +126,9 @@ describe('applySectionRewrite', () => {
     expect(result.content.education).toEqual(before.education);
     expect(result.content.summary).toBe(before.summary);
     // The new part is verified against source + answers.
+    // The quote for "Cut costs by 30%" exists but says nothing about it.
     expect(result.review.flags.map((f) => [f.itemId, f.reason])).toEqual([
+      [item.bullets[2]!.id, REASONS.noEvidence],
       [item.bullets[2]!.id, REASONS.number('30')],
     ]);
     expect(result.review.evidence[item.bullets[1]!.id]).toEqual(['led a team of 4 engineers']);

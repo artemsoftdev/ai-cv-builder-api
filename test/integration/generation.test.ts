@@ -116,7 +116,7 @@ describe('POST /api/cvs with text', () => {
         location: '',
         links: [{ label: 'LinkedIn', url: 'https://linkedin.com/in/janedoe' }],
       },
-      summary: { text: 'Backend engineer with 8 years in payments.', evidence: ['eight years'] },
+      summary: { text: 'Backend engineer with 10 years in payments.', evidence: ['eight years'] },
       experience: [
         {
           company: 'Acme Payments',
@@ -129,6 +129,7 @@ describe('POST /api/cvs with text', () => {
             { text: 'Built the billing service in Go', evidence: ['Built the billing service'] },
             { text: 'Cut p99 latency by 40%', evidence: ['Reduced p99 latency'] },
             { text: 'Led a team of 12 engineers', evidence: ['led a team of 12'] },
+            { text: 'Ran the billing service on Kubernetes', evidence: ['the billing service'] },
           ],
         },
       ],
@@ -144,7 +145,7 @@ describe('POST /api/cvs with text', () => {
     const exp = cv.content!.experience[0]!;
     const flags = (itemId: string) =>
       cv.review!.flags.filter((f) => f.itemId === itemId).map((f) => f.reason);
-    expect(flags('summary')).toEqual([REASONS.number('8')]);
+    expect(flags('summary')).toEqual([REASONS.number('10')]);
     expect(flags(exp.id)).toEqual([REASONS.seniority('senior')]);
     expect(flags(exp.bullets[0]!.id)).toEqual([]);
     expect(flags(exp.bullets[1]!.id)).toEqual([REASONS.number('40')]);
@@ -153,6 +154,7 @@ describe('POST /api/cvs with text', () => {
       REASONS.number('12'),
       REASONS.ownership('led'),
     ]);
+    expect(flags(exp.bullets[3]!.id)).toEqual([REASONS.terms(['Kubernetes'])]);
 
     expect(cv.content!.contact.email).toBe('');
     expect(cv.content!.contact.links).toEqual([]);

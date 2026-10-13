@@ -13,17 +13,18 @@ import {
   type ReviewFlag,
 } from '../cvs/cv.types.js';
 import type { Corpus } from './corpus.js';
-import { normalizeText, wordsOf } from './normalize.js';
+import {
+  collapseAbbreviations,
+  normalizePhrase,
+  normalizeText,
+  sameWord,
+  stripEdgePunctuation,
+  wordsOf,
+} from './normalize.js';
 import { extractNumbers } from './numbers.js';
 
-/*
- * Deterministic grounding checks (no LLM involved). Generated text is compared with the
- * corpus (source text + the user's answers):
- *   - unverifiable claims in prose (bullets, summary, entry names, dates) are FLAGGED, the user
- *     decides;
- *   - contact data and skills that are not in the corpus are REMOVED (and listed in
- *     review.removed), because they would otherwise be shown or printed as facts.
- */
+// Deterministic checks against the corpus: unsupported prose is FLAGGED for the user, contact
+// data and skills that are not in the corpus are REMOVED (they would print as facts).
 
 /** Claimed supporting quotes per bullet id / 'summary', straight from the model. */
 export type ClaimedEvidence = Readonly<Record<string, readonly string[]>>;
@@ -37,6 +38,9 @@ export const REASONS = {
   entity: (label: string, value: string) => `${label} "${value}" was not found in your source`,
   seniority: (word: string) => `Title says "${word}", which your source does not`,
   ownership: (word: string) => `Says "${word}", which your source does not`,
+  terms: (terms: readonly string[]) =>
+    `${terms.map((term) => `"${term}"`).join(', ')} ${terms.length === 1 ? 'does' : 'do'} not appear in your source`,
+  degreeLevel: (word: string) => `Degree says "${word}", which your source does not`,
   email: 'Email address not found in your source',
   phone: 'Phone number not found in your source',
   link: 'Link not found in your source',
@@ -63,14 +67,8 @@ const SENIORITY_WORDS = new Set(
   ).split(' '),
 );
 
-/*
- * Ownership verbs: "worked on the billing rewrite" easily becomes "Led the billing rewrite",
- * which neither evidence quotes nor the number check catch. A claim word is accepted when any
- * word of its family occurs in the corpus ("team lead" supports "Led").
- */
-const OWNERSHIP_FAMILIES: readonly { claims: string[]; support: string[] }[] = [
-  // `claims` trigger the check ("lead" or "direct" alone are too often nouns or adjectives);
-  // `support` are further words that back a claim up.
+// "worked on" easily becomes "Led"; a claim word needs a word of its family (or stem) in the corpus.
+const OWNERSHIP_FAMILIES: readonly { claims: string[]; support: string[]; stems?: string[] }[] = [
   { claims: ['led', 'leading'], support: ['lead', 'leads', 'leader', 'leadership'] },
   { claims: ['managed', 'managing'], support: ['manage', 'manages', 'manager', 'management'] },
   { claims: ['headed'], support: ['head'] },
@@ -79,15 +77,39 @@ const OWNERSHIP_FAMILIES: readonly { claims: string[]; support: string[] }[] = [
   { claims: ['oversaw', 'overseeing'], support: ['oversee', 'oversees'] },
   { claims: ['spearheaded', 'spearheading'], support: ['spearhead'] },
   { claims: ['architected'], support: ['architect'] },
-  { claims: ['руководил', 'руководила'], support: ['руководитель', 'руководство'] },
-  { claims: ['возглавлял', 'возглавляла'], support: ['возглавить'] },
-  { claims: ['управлял', 'управляла'], support: ['управление'] },
+  { claims: ['owned', 'owning'], support: ['owner', 'ownership'] },
+  { claims: ['drove'], support: ['drive', 'driven', 'driver'] },
+  { claims: ['founded', 'cofounded'], support: ['founder', 'cofounder'] },
+  { claims: ['mentored', 'mentoring'], support: ['mentor', 'mentors'] },
+  { claims: ['championed'], support: ['champion'] },
+  { claims: ['orchestrated'], support: ['orchestrate'] },
+  { claims: ['leitete', 'leitet'], support: ['leiter', 'leitung', 'leiten'] },
+  {
+    claims: ['руководил', 'руководила', 'руководили', 'руководство'],
+    support: [],
+    stems: ['руковод'],
+  },
+  {
+    claims: ['возглавлял', 'возглавляла', 'возглавил', 'возглавила', 'возглавляли'],
+    support: [],
+    stems: ['возглав'],
+  },
+  { claims: ['управлял', 'управляла', 'управляли'], support: [], stems: ['управл'] },
 ];
 const OWNERSHIP_CLAIMS = new Map(
-  OWNERSHIP_FAMILIES.flatMap(({ claims, support }) =>
-    claims.map((claim) => [claim, [...claims, ...support]] as const),
-  ),
+  OWNERSHIP_FAMILIES.flatMap((family) => family.claims.map((claim) => [claim, family] as const)),
 );
+
+const DEGREE_LEVELS: readonly (readonly string[])[] = [
+  ['bachelor', 'bachelors', 'bsc', 'ba', 'bs', 'beng', 'bba', 'бакалавр'],
+  ['master', 'masters', 'msc', 'ma', 'ms', 'meng', 'magister', 'магистр'],
+  ['mba'],
+  ['phd', 'doctor', 'doctorate', 'dphil', 'доктор', 'кандидат'],
+  ['diploma', 'diplom', 'диплом', 'специалист'],
+  ['associate'],
+];
+
+const NUMBER_LIKE_RE = /^\p{Sc}?[\d.,]+(?:[x×%kmb]|bn|mn|mln)?$/iu;
 
 /** Collects the review entries of one verification run. */
 class ReviewBuilder {
@@ -115,11 +137,10 @@ function significantWords(value: string): string[] {
   );
 }
 
-/** True when most significant words of `value` occur in the corpus (empty values pass). */
 function mostlyInCorpus(value: string, corpus: Corpus): boolean {
   const words = significantWords(value);
   if (words.length === 0) return true;
-  const found = words.filter((word) => corpus.hasWord(word)).length;
+  const found = words.filter((word) => corpus.hasWordLike(word)).length;
   return found / words.length >= MIN_ENTITY_WORD_SHARE;
 }
 
@@ -129,14 +150,27 @@ function checkNumbers(text: string, itemId: string, corpus: Corpus, review: Revi
   }
 }
 
-/** Flags `itemId` unless at least one claimed quote is found; records the verified ones. */
+/** A quote must share a significant word with the claim it supports. */
+function supports(quote: string, claimWords: readonly string[]): boolean {
+  return significantWords(quote).some((word) => claimWords.some((claim) => sameWord(word, claim)));
+}
+
+/**
+ * Flags `itemId` unless a claimed quote occurs in the corpus and relates to `text`; records the
+ * verified quotes. Text the user typed or confirmed needs no quote.
+ */
 function checkEvidence(
   itemId: string,
+  text: string,
   claimed: readonly string[] | undefined,
   corpus: Corpus,
   review: ReviewBuilder,
 ): void {
-  const verified = [...new Set(claimed ?? [])].filter((quote) => corpus.hasQuote(quote));
+  if (corpus.isConfirmed(text)) return;
+  const claimWords = significantWords(text);
+  const verified = [...new Set(claimed ?? [])].filter(
+    (quote) => corpus.hasQuote(quote) && supports(quote, claimWords),
+  );
   if (verified.length === 0) review.flag(itemId, REASONS.noEvidence);
   else review.evidence[itemId] = verified;
 }
@@ -147,12 +181,65 @@ function checkOwnershipClaims(
   corpus: Corpus,
   review: ReviewBuilder,
 ): void {
-  for (const word of new Set(wordsOf(normalizeText(text)))) {
+  const words = wordsOf(normalizeText(text));
+  words.forEach((word, i) => {
     const family = OWNERSHIP_CLAIMS.get(word);
-    if (family && !family.some((form) => corpus.hasWord(form))) {
-      review.flag(itemId, REASONS.ownership(word));
+    if (!family || (word === 'led' && words[i + 1] === 'to')) return;
+    const supported =
+      [...family.claims, ...family.support].some((form) => corpus.hasWordLike(form)) ||
+      (family.stems ?? []).some((stem) => corpus.hasWordWithStem(stem));
+    if (!supported) review.flag(itemId, REASONS.ownership(word));
+  });
+}
+
+/**
+ * Names and technologies the text mentions: capitalised words that do not start a sentence,
+ * acronyms, tokens mixing letters with digits or + # . /, and any term of `vocabulary`.
+ */
+export function namedTerms(text: string, vocabulary: readonly string[] = []): string[] {
+  const terms: string[] = [];
+  let sentenceStart = true;
+  for (const raw of text.split(/\s+/).filter(Boolean)) {
+    const atStart = sentenceStart;
+    sentenceStart = /[.!?:;]["')\]]*$/.test(raw);
+    const token = stripEdgePunctuation(raw).replace(/['’]s$/u, '');
+    if (Array.from(token).length < 2 || NUMBER_LIKE_RE.test(token) || !/\p{L}/u.test(token)) {
+      continue;
     }
+    const technical = /\p{N}|[+#]|\p{L}[./]\p{L}/u.test(token);
+    const capitalised = /\p{Lu}/u.test(token) && (!atStart || /\p{Lu}.*\p{Lu}/u.test(token));
+    if (technical || capitalised) terms.push(token);
   }
+  const normalized = normalizeText(text);
+  for (const term of vocabulary) {
+    const phrase = normalizePhrase(term);
+    if (phrase.length >= 2 && ` ${normalized} `.includes(` ${phrase} `)) terms.push(term);
+  }
+  const seen = new Set<string>();
+  return terms.filter((term) => {
+    const key = normalizePhrase(term);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function termInCorpus(term: string, corpus: Corpus): boolean {
+  if (corpus.hasTerm(term)) return true;
+  const words = wordsOf(normalizePhrase(term));
+  if (words.length !== 1) return false;
+  return corpus.hasWordLike(words[0]!);
+}
+
+function checkNamedTerms(
+  text: string,
+  itemId: string,
+  corpus: Corpus,
+  review: ReviewBuilder,
+  vocabulary: readonly string[],
+): void {
+  const missing = namedTerms(text, vocabulary).filter((term) => !termInCorpus(term, corpus));
+  if (missing.length > 0) review.flag(itemId, REASONS.terms(missing.slice(0, 5)));
 }
 
 function checkEntity(
@@ -166,14 +253,30 @@ function checkEntity(
 }
 
 /** Like checkEntity, plus: no seniority word the source does not use ("Senior", "Lead"). */
-function checkJobTitle(title: string, itemId: string, corpus: Corpus, review: ReviewBuilder) {
+function checkJobTitle(
+  label: string,
+  title: string,
+  itemId: string,
+  corpus: Corpus,
+  review: ReviewBuilder,
+) {
   if (!mostlyInCorpus(title, corpus)) {
-    review.flag(itemId, REASONS.entity('Job title', title));
+    review.flag(itemId, REASONS.entity(label, title));
     return;
   }
   for (const word of significantWords(title)) {
-    if (SENIORITY_WORDS.has(word) && !corpus.hasWord(word)) {
+    if (SENIORITY_WORDS.has(word) && !corpus.hasWordLike(word)) {
       review.flag(itemId, REASONS.seniority(word));
+    }
+  }
+}
+
+/** A degree level ("Master", "PhD") needs the same level in the corpus, whatever the wording. */
+function checkDegreeLevel(degree: string, itemId: string, corpus: Corpus, review: ReviewBuilder) {
+  for (const word of wordsOf(collapseAbbreviations(normalizeText(degree)))) {
+    const family = DEGREE_LEVELS.find((level) => level.some((form) => sameWord(word, form)));
+    if (family && !family.some((form) => corpus.hasWordLike(form))) {
+      review.flag(itemId, REASONS.degreeLevel(word));
     }
   }
 }
@@ -187,7 +290,7 @@ export function verifyContact(
   const result = { ...contact };
 
   const fullNameWords = wordsOf(normalizeText(contact.fullName)).filter((w) => w.length >= 2);
-  if (contact.fullName && !fullNameWords.every((word) => corpus.hasWord(word))) {
+  if (contact.fullName && !fullNameWords.every((word) => corpus.hasWordLike(word))) {
     review.remove('contact.fullName', contact.fullName, REASONS.name);
     result.fullName = '';
   }
@@ -211,19 +314,26 @@ export function verifyContact(
   return { contact: result, review: review.build() };
 }
 
-/** Summary needs evidence and no unknown numbers; the headline only no unknown numbers. */
+/** Summary: evidence, numbers, ownership verbs and named terms. Headline: a title the corpus backs. */
 export function verifySummary(
   content: Pick<CvContent, 'summary'> & { contact: Pick<CvContent['contact'], 'headline'> },
   claimed: ClaimedEvidence,
   corpus: Corpus,
+  vocabulary: readonly string[] = [],
 ): CvReview {
   const review = new ReviewBuilder();
-  if (content.summary) {
-    checkEvidence(SUMMARY_TARGET_ID, claimed[SUMMARY_TARGET_ID], corpus, review);
-    checkNumbers(content.summary, SUMMARY_TARGET_ID, corpus, review);
-    checkOwnershipClaims(content.summary, SUMMARY_TARGET_ID, corpus, review);
+  const { summary } = content;
+  if (summary && !corpus.isConfirmed(summary)) {
+    checkEvidence(SUMMARY_TARGET_ID, summary, claimed[SUMMARY_TARGET_ID], corpus, review);
+    checkNumbers(summary, SUMMARY_TARGET_ID, corpus, review);
+    checkOwnershipClaims(summary, SUMMARY_TARGET_ID, corpus, review);
+    checkNamedTerms(summary, SUMMARY_TARGET_ID, corpus, review, vocabulary);
   }
-  checkNumbers(content.contact.headline, HEADLINE_TARGET_ID, corpus, review);
+  const { headline } = content.contact;
+  if (headline && !corpus.isConfirmed(headline)) {
+    checkNumbers(headline, HEADLINE_TARGET_ID, corpus, review);
+    checkJobTitle('Headline', headline, HEADLINE_TARGET_ID, corpus, review);
+  }
   return review.build();
 }
 
@@ -231,26 +341,39 @@ export function verifyExperienceItem(
   item: ExperienceItem,
   claimed: ClaimedEvidence,
   corpus: Corpus,
+  vocabulary: readonly string[] = [],
 ): CvReview {
   const review = new ReviewBuilder();
   checkEntity('Company', item.company, item.id, corpus, review);
-  checkJobTitle(item.title, item.id, corpus, review);
+  checkJobTitle('Job title', item.title, item.id, corpus, review);
   checkEntity('Location', item.location, item.id, corpus, review);
   checkNumbers(`${item.startDate} ${item.endDate}`, item.id, corpus, review);
   for (const bullet of item.bullets) {
-    checkEvidence(bullet.id, claimed[bullet.id], corpus, review);
+    if (corpus.isConfirmed(bullet.text)) continue;
+    checkEvidence(bullet.id, bullet.text, claimed[bullet.id], corpus, review);
     checkNumbers(bullet.text, bullet.id, corpus, review);
     checkOwnershipClaims(bullet.text, bullet.id, corpus, review);
+    checkNamedTerms(bullet.text, bullet.id, corpus, review, vocabulary);
   }
   return review.build();
 }
 
-export function verifyEducationItem(item: EducationItem, corpus: Corpus): CvReview {
+export function verifyEducationItem(
+  item: EducationItem,
+  corpus: Corpus,
+  vocabulary: readonly string[] = [],
+): CvReview {
   const review = new ReviewBuilder();
   checkEntity('Institution', item.institution, item.id, corpus, review);
   checkEntity('Degree', item.degree, item.id, corpus, review);
+  checkDegreeLevel(item.degree, item.id, corpus, review);
   checkEntity('Location', item.location, item.id, corpus, review);
-  checkNumbers(`${item.startDate} ${item.endDate} ${item.details}`, item.id, corpus, review);
+  checkNumbers(`${item.startDate} ${item.endDate}`, item.id, corpus, review);
+  if (item.details && !corpus.isConfirmed(item.details)) {
+    checkEntity('Details', item.details, item.id, corpus, review);
+    checkNumbers(item.details, item.id, corpus, review);
+    checkNamedTerms(item.details, item.id, corpus, review, vocabulary);
+  }
   return review.build();
 }
 
@@ -289,12 +412,14 @@ export function verifyContent(
 ): { content: CvContent; review: CvReview } {
   const contact = verifyContact(content.contact, corpus);
   const skills = verifySkills(content.skills, corpus);
+  // Every skill the model listed, so a removed one is also caught in prose.
+  const vocabulary = content.skills.flatMap((group) => group.items);
   const verified: CvContent = { ...content, contact: contact.contact, skills: skills.skills };
   const review = mergeReviews([
     contact.review,
-    verifySummary(verified, claimed, corpus),
-    ...verified.experience.map((item) => verifyExperienceItem(item, claimed, corpus)),
-    ...verified.education.map((item) => verifyEducationItem(item, corpus)),
+    verifySummary(verified, claimed, corpus, vocabulary),
+    ...verified.experience.map((item) => verifyExperienceItem(item, claimed, corpus, vocabulary)),
+    ...verified.education.map((item) => verifyEducationItem(item, corpus, vocabulary)),
     skills.review,
   ]);
   return { content: verified, review };

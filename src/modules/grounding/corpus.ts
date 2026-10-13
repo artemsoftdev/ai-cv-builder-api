@@ -1,61 +1,94 @@
 import {
+  collapseAbbreviations,
   compact,
   normalizePhrase,
   normalizeText,
   normalizeUrl,
+  sameWord,
   stripEdgePunctuation,
   wordsOf,
 } from './normalize.js';
 import { extractNumbers } from './numbers.js';
 
-/** Shorter quotes ("a", "in") would "prove" anything. */
-const MIN_QUOTE_CHARS = 3;
-/** Multi-word technical terms compared in compact form ("Type Script" vs "TypeScript"). */
+const MIN_QUOTE_CHARS = 12;
+const MIN_QUOTE_WORDS = 2;
+/** Fragments of a quote shortened with "..." must occur in order, this close to each other. */
+const MAX_FRAGMENT_GAP = 300;
 const MAX_COMPACT_WINDOW = 3;
-/** Shortest digit sequence accepted as a phone number. */
 export const MIN_PHONE_DIGITS = 7;
 
-// A run of digits with phone punctuation in between, e.g. "+49 (30) 123-45-67".
 const PHONE_RUN_RE = /\+?\d[\d\s()./-]{5,}\d/g;
+const EMAIL_RE = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}/gu;
+const URL_RE =
+  /(?:[a-z][a-z0-9+.-]*:\/\/)?[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,}(?::\d+)?(?:[/?#][^\s|,;()<>"'[\]{}]*)?/gu;
+// "The migration led to fewer outages" supports no leadership claim.
+const LED_TO_RE = /(?<![\p{L}\p{N}])led to(?![\p{L}\p{N}])/gu;
+
+const TERM_ALIASES: readonly (readonly string[])[] = [
+  ['postgres', 'postgresql'],
+  ['k8s', 'kubernetes'],
+  ['js', 'javascript'],
+  ['ts', 'typescript'],
+  ['golang', 'go'],
+  ['reactjs', 'react'],
+  ['vuejs', 'vue'],
+  ['mongo', 'mongodb'],
+];
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Digits of a phone number without trunk/international zeros: "+49 030 1234" -> "49301234". */
+function boundedRe(phrase: string, flags = 'u'): RegExp {
+  // Short terms must not match "go-to" or "R&D".
+  const tail = phrase.length <= 2 ? '(?![\\p{L}\\p{N}&-])' : '(?![\\p{L}\\p{N}])';
+  const head = phrase.length <= 2 ? '(?<![\\p{L}\\p{N}&])' : '(?<![\\p{L}\\p{N}])';
+  return new RegExp(`${head}${escapeRegExp(phrase)}${tail}`, flags);
+}
+
+/** "+49 030 1234" -> "49301234": digits without trunk/international zeros. */
 export function phoneDigits(phone: string): string {
   return phone.replace(/\D/g, '').replace(/^0+/, '');
 }
 
 /**
- * Everything a generated claim may be grounded in: the source text plus the user's answers.
- * The questions the model asked are deliberately NOT part of it: a question is not a fact.
+ * Everything a generated claim may be grounded in: the source, the user's answers and what the
+ * user typed or confirmed in the editor. Questions the model asked are not part of it.
  */
 export class Corpus {
   readonly text: string;
   private readonly words: Set<string>;
+  private readonly inflectedWords = new Map<string, string[]>();
   private readonly compactTerms = new Set<string>();
-  /** Whole terms that look like URLs / emails, in comparable form. */
   private readonly urls = new Set<string>();
   private readonly emails = new Set<string>();
   private readonly numbers: Set<string>;
   private readonly phones: string[];
+  private readonly confirmed: Set<string>;
 
-  constructor(sourceText: string, answers: readonly string[] = []) {
-    this.text = normalizeText([sourceText, ...answers].join('\n'));
-    this.words = new Set(wordsOf(this.text));
+  constructor(
+    sourceText: string,
+    answers: readonly string[] = [],
+    confirmed: readonly string[] = [],
+  ) {
+    this.text = normalizeText([sourceText, ...answers, ...confirmed].join('\n'));
+    this.confirmed = new Set(confirmed.map(normalizePhrase).filter(Boolean));
+    const plain = this.text.replace(LED_TO_RE, ' to');
+    this.words = new Set([...wordsOf(plain), ...wordsOf(collapseAbbreviations(plain))]);
+    for (const word of this.words) {
+      if (/^[a-z0-9]+$/.test(word) || word.length < 4) continue;
+      const key = word.slice(0, 3);
+      this.inflectedWords.set(key, [...(this.inflectedWords.get(key) ?? []), word]);
+    }
     this.numbers = new Set(extractNumbers(this.text).map((n) => n.canonical));
     this.phones = [...this.text.matchAll(PHONE_RUN_RE)]
       .map(([run]) => phoneDigits(run))
       .filter((digits) => digits.length >= MIN_PHONE_DIGITS);
+    for (const [email] of this.text.matchAll(EMAIL_RE)) this.emails.add(email);
+    for (const [url] of this.text.matchAll(URL_RE)) this.urls.add(normalizeUrl(url));
 
-    // Whitespace-separated terms, for exact (not substring) lookups: "jan@x.com" must not
-    // match inside "jane@x.com", nor "github.com/jan" inside "github.com/jane".
     const terms = this.text.split(' ').map(stripEdgePunctuation).filter(Boolean);
     for (let i = 0; i < terms.length; i++) {
-      const term = terms[i]!;
-      if (term.includes('@')) this.emails.add(term.replace(/^mailto:/, ''));
-      if (term.includes('.')) this.urls.add(normalizeUrl(term));
       for (let size = 1; size <= MAX_COMPACT_WINDOW && i + size <= terms.length; size++) {
         this.compactTerms.add(compact(terms.slice(i, i + size).join(' ')));
       }
@@ -63,16 +96,35 @@ export class Corpus {
   }
 
   /**
-   * True if the quote occurs verbatim (after normalisation). A quote shortened with "..." is
-   * accepted when every fragment occurs.
+   * True if the quote occurs on word boundaries. A quote shortened with "..." needs every
+   * fragment, in order and close together. Quotes under two words / 12 characters prove nothing.
    */
   hasQuote(quote: string): boolean {
     const fragments = normalizeText(quote)
       .split('...')
       .map(stripEdgePunctuation)
       .filter((fragment) => fragment.length > 0);
-    if (fragments.join('').length < MIN_QUOTE_CHARS) return false;
-    return fragments.every((fragment) => this.text.includes(fragment));
+    const joined = fragments.join(' ');
+    if (joined.length < MIN_QUOTE_CHARS && wordsOf(joined).length < MIN_QUOTE_WORDS) return false;
+    const [first, ...rest] = fragments.map((fragment) => boundedRe(fragment, 'gu'));
+    if (!first) return false;
+    for (const match of this.text.matchAll(first)) {
+      let end = match.index + match[0].length;
+      const found = rest.every((re) => {
+        re.lastIndex = end;
+        const next = re.exec(this.text);
+        if (!next || next.index - end > MAX_FRAGMENT_GAP) return false;
+        end = next.index + next[0].length;
+        return true;
+      });
+      if (found) return true;
+    }
+    return false;
+  }
+
+  /** Text the user typed or confirmed in the editor, verbatim. */
+  isConfirmed(text: string): boolean {
+    return this.confirmed.has(normalizePhrase(text));
   }
 
   hasNumber(canonical: string): boolean {
@@ -84,18 +136,36 @@ export class Corpus {
     return this.words.has(word);
   }
 
+  /** hasWord, tolerating inflection ("Москве" for "Москва") and English plurals. */
+  hasWordLike(word: string): boolean {
+    if (this.words.has(word)) return true;
+    if (/^[a-z0-9]+$/.test(word)) {
+      const variants = [`${word}s`, `${word}es`];
+      if (word.endsWith('s')) variants.push(word.slice(0, -1));
+      if (word.endsWith('es')) variants.push(word.slice(0, -2));
+      return variants.some((variant) => this.words.has(variant));
+    }
+    return (this.inflectedWords.get(word.slice(0, 3)) ?? []).some((other) => sameWord(word, other));
+  }
+
+  /** Any corpus word starting with `stem` ("руковод" for "руководил"). */
+  hasWordWithStem(stem: string): boolean {
+    for (const word of this.words) if (word.startsWith(stem)) return true;
+    return false;
+  }
+
   /**
-   * True if the term occurs as a whole phrase ("Go" in "Go and Rust", not in "Google"), or in
-   * compact form as a term of the source ("NodeJS" vs "Node.js", "CI/CD" vs "CICD").
+   * A whole phrase ("Go" in "Go and Rust", not in "Google" or "go-to"), its compact form
+   * ("NodeJS" for "Node.js") or a known alias ("Postgres" for "PostgreSQL").
    */
   hasTerm(term: string): boolean {
     const phrase = normalizePhrase(term);
     if (!phrase) return false;
-    const boundary = new RegExp(
-      `(?<![\\p{L}\\p{N}])${escapeRegExp(phrase)}(?![\\p{L}\\p{N}])`,
-      'u',
+    const aliases = TERM_ALIASES.find((group) => group.includes(compact(phrase))) ?? [];
+    return [phrase, ...aliases].some(
+      (candidate) =>
+        boundedRe(candidate).test(this.text) || this.compactTerms.has(compact(candidate)),
     );
-    return boundary.test(this.text) || this.compactTerms.has(compact(phrase));
   }
 
   hasEmail(email: string): boolean {
