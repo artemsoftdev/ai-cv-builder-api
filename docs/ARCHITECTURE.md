@@ -94,6 +94,18 @@ manual edits and AI rewrites.
 6. **LLM output is untrusted input**: parsed with zod (lengths, counts), stripped of control
    characters, rendered as text only (React escaping; react-pdf has no HTML).
 
+## PDF export
+
+`GET /api/cvs/:id/pdf` renders the stored content with `@react-pdf/renderer` in the API process
+(no headless browser): a single-column A4 template, real text in the embedded Inter font
+(`assets/fonts`, Latin + Cyrillic + Greek), so the PDF is selectable and ATS-readable. Empty
+fields, entries and sections are not printed; only http(s)/mailto links become clickable.
+Fonts are registered per document: fontkit caches glyphs per loaded font, and sharing one
+instance corrupted glyphs in PDFs rendered after a Cyrillic one. A typical CV renders in
+~50 ms; the largest one the content limits allow (~50 pages) takes a few seconds of CPU, but
+react-pdf yields to the event loop as it goes (longest stall measured: ~40 ms), so other
+requests and job heartbeats keep flowing. Exports are rate-limited per user (30 / 10 min).
+
 ## Security notes
 
 - Passwords: `crypto.scrypt` (N=16384, r=8, p=1, 16-byte salt), constant-time compare, dummy
@@ -101,4 +113,10 @@ manual edits and AI rewrites.
 - Sessions: 32 random bytes, SHA-256 stored, 30-day expiry, deleted on logout.
 - Ownership: every CV query is scoped by `user_id`; foreign CVs return 404.
 - Upload: memory storage with hard limits, magic-byte check, page limit, parse timeout.
-- helmet, `x-powered-by` off, JSON body limit 1 MB, rate limits on auth, creation and answers.
+- helmet, `x-powered-by` off, JSON body limit 1 MB, rate limits on auth, creation, answers and
+  PDF export.
+- Logs: cookies, credentials, the API key and SQL parameters are redacted; CV content is never
+  logged (only ids, counts, token usage and durations).
+- Docker: the API runs as the unprivileged `node` user on read-only application files; Postgres
+  is not published to the host; the only secret (`ANTHROPIC_API_KEY`) comes from the
+  environment and never enters the image.
