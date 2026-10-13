@@ -5,10 +5,11 @@ import { parseInput } from '../../http/validation.js';
 import { cvParamsSchema } from '../cvs/cv.schemas.js';
 import type { CvService } from '../cvs/cv.service.js';
 import { attachmentDisposition, cvFileBaseName } from './content-disposition.js';
-import { renderCvPdf } from './render-cv-pdf.js';
+import { PdfRenderTimeoutError, type PdfRenderer } from './pdf-renderer.js';
 
 export function createPdfRouter(deps: {
   cvService: CvService;
+  pdfRenderer: PdfRenderer;
   pdfRateLimit: RequestHandler;
 }): Router {
   const router = Router();
@@ -21,7 +22,10 @@ export function createPdfRouter(deps: {
     }
 
     const startedAt = performance.now();
-    const pdf = await renderCvPdf(cv.content, { title: cv.title });
+    const pdf = await deps.pdfRenderer.render(cv.content, cv.title).catch((err: unknown) => {
+      if (!(err instanceof PdfRenderTimeoutError)) throw err;
+      throw new AppError('INTERNAL', 'Creating the PDF took too long. Please try again.');
+    });
     req.log.info(
       { cvId: cv.id, bytes: pdf.length, durationMs: Math.round(performance.now() - startedAt) },
       'CV PDF rendered',

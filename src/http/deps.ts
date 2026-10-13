@@ -1,6 +1,7 @@
 import type { DataSource } from 'typeorm';
 import type { AppConfig } from '../config/config.js';
 import type { Logger } from '../logger.js';
+import type { PdfRenderer } from '../modules/pdf/pdf-renderer.js';
 import type { RateLimitOptions } from './middleware/rate-limit.js';
 
 export interface AppDeps {
@@ -18,6 +19,7 @@ export interface AppOptions {
   maxActiveGenerations?: number;
   maxLiveJobs?: number;
   pdfRateLimit?: RateLimitOptions;
+  pdfRenderer?: PdfRenderer;
 }
 
 const MINUTE_MS = 60 * 1000;

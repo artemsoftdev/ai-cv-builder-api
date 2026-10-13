@@ -13,6 +13,7 @@ import {
 } from '../modules/ingestion/generation-capacity.js';
 import { createIngestionRouter } from '../modules/ingestion/ingestion.router.js';
 import { IngestionService } from '../modules/ingestion/ingestion.service.js';
+import { sharedPdfRenderer } from '../modules/pdf/pdf-renderer.js';
 import { createPdfRouter } from '../modules/pdf/pdf.router.js';
 import { getAuth } from './auth-context.js';
 import {
@@ -87,6 +88,7 @@ export function createApiRouter(deps: AppDeps, options: AppOptions = {}): Router
   cvs.use(
     createPdfRouter({
       cvService,
+      pdfRenderer: options.pdfRenderer ?? sharedPdfRenderer,
       pdfRateLimit: createRateLimiter(options.pdfRateLimit ?? DEFAULT_PDF_RATE_LIMIT, {
         key: byUser,
       }),

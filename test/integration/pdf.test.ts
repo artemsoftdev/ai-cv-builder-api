@@ -1,7 +1,10 @@
 import supertest from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { sampleContent } from '../fixtures/cv-content.js';
-import { signedInUser, useTestApp, type Browser } from '../helpers/app.js';
+import { createApp } from '../../src/http/app.js';
+import { createLogger } from '../../src/logger.js';
+import { PdfRenderer } from '../../src/modules/pdf/pdf-renderer.js';
+import { NO_LIMIT, signedInUser, testConfig, useTestApp, type Browser } from '../helpers/app.js';
 import { createCv, createJob } from '../fixtures/db-rows.js';
 import { inspectPdf } from '../helpers/pdf-inspect.js';
 
@@ -90,6 +93,23 @@ describe('GET /api/cvs/:id/pdf', () => {
 
     const anonymous = await supertest(ctx.app).get(`/api/cvs/${MISSING_ID}/pdf`);
     expect(anonymous.status).toBe(401);
+  });
+
+  it('answers 500 with a retry hint when rendering misses its deadline', async () => {
+    const renderer = new PdfRenderer({ timeoutMs: 1 });
+    const app = createApp(
+      { config: testConfig(), logger: createLogger('silent'), dataSource: ctx.dataSource },
+      { credentialsRateLimit: NO_LIMIT, accountRateLimit: NO_LIMIT, pdfRenderer: renderer },
+    );
+    const carol = await signedInUser(app);
+    const cv = await createCv(ctx.dataSource, carol.user.id);
+
+    const res = await carol.agent.get(`/api/cvs/${cv.id}/pdf`);
+    renderer.stop();
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({
+      error: { code: 'INTERNAL', message: 'Creating the PDF took too long. Please try again.' },
+    });
   });
 
   it('rate-limits exports per user', async () => {
