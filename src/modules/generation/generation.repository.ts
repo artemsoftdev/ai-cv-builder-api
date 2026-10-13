@@ -62,7 +62,7 @@ export class GenerationRepository {
       this.dataSource.manager,
       `UPDATE cvs SET stage = $1, updated_at = now()
         WHERE id = $2 AND status = 'generating' AND ${leaseHeldSql('$3', '$4')}`,
-      [stage, cvId, lease.jobId, lease.workerId],
+      [stage, cvId, lease.jobId, lease.lockedBy],
     );
   }
 
@@ -75,7 +75,7 @@ export class GenerationRepository {
       this.dataSource.manager,
       `UPDATE cvs SET source_text = $1, source_pdf = NULL, updated_at = now()
         WHERE id = $2 AND ${leaseHeldSql('$3', '$4')}`,
-      [text, cvId, lease.jobId, lease.workerId],
+      [text, cvId, lease.jobId, lease.lockedBy],
     );
   }
 

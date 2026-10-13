@@ -7,7 +7,10 @@ import { CvService } from '../modules/cvs/cv.service.js';
 import { createGenerationRouter } from '../modules/generation/generation.router.js';
 import { GenerationService } from '../modules/generation/generation.service.js';
 import { createHealthRouter } from '../modules/health/health.router.js';
-import { DEFAULT_MAX_ACTIVE_GENERATIONS } from '../modules/ingestion/generation-capacity.js';
+import {
+  DEFAULT_MAX_ACTIVE_GENERATIONS,
+  DEFAULT_MAX_LIVE_JOBS,
+} from '../modules/ingestion/generation-capacity.js';
 import { createIngestionRouter } from '../modules/ingestion/ingestion.router.js';
 import { IngestionService } from '../modules/ingestion/ingestion.service.js';
 import { createPdfRouter } from '../modules/pdf/pdf.router.js';
@@ -57,7 +60,10 @@ export function createApiRouter(deps: AppDeps, options: AppOptions = {}): Router
 
   // Everything under /cvs requires a session. Authenticate once here, then let each feature
   // router add its own routes on the same path.
-  const maxActiveGenerations = options.maxActiveGenerations ?? DEFAULT_MAX_ACTIVE_GENERATIONS;
+  const capacity = {
+    maxActiveGenerations: options.maxActiveGenerations ?? DEFAULT_MAX_ACTIVE_GENERATIONS,
+    maxLiveJobs: options.maxLiveJobs ?? DEFAULT_MAX_LIVE_JOBS,
+  };
   // One budget for every generation start (create + retry): each costs LLM calls.
   const generationRateLimit = createRateLimiter(
     options.generationRateLimit ?? DEFAULT_GENERATION_RATE_LIMIT,
@@ -68,13 +74,13 @@ export function createApiRouter(deps: AppDeps, options: AppOptions = {}): Router
   cvs.use(createCvsRouter({ cvService }));
   cvs.use(
     createIngestionRouter({
-      ingestionService: new IngestionService({ dataSource, cvService, maxActiveGenerations }),
+      ingestionService: new IngestionService({ dataSource, cvService, capacity }),
       generationRateLimit,
     }),
   );
   cvs.use(
     createGenerationRouter({
-      generationService: new GenerationService({ dataSource, cvService, maxActiveGenerations }),
+      generationService: new GenerationService({ dataSource, cvService, capacity }),
       generationRateLimit,
       answerRateLimit: createRateLimiter(options.answerRateLimit ?? DEFAULT_ANSWER_RATE_LIMIT, {
         key: byUser,

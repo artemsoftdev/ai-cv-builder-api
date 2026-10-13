@@ -2,7 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { CvEntity, JobEntity } from '../../src/db/entities/index.js';
 import { PermanentError, TransientError } from '../../src/modules/jobs/job-errors.js';
-import type { JobHandlers } from '../../src/modules/jobs/job.types.js';
+import type { ClaimedJob, JobHandlers } from '../../src/modules/jobs/job.types.js';
 import { FakeLlmClient } from '../../src/modules/llm/fake-llm-client.js';
 import { signedInUser, useTestApp } from '../helpers/app.js';
 import { createCv, createJob } from '../helpers/fixtures.js';
@@ -38,7 +38,27 @@ async function queuedGeneration() {
 const reloadJob = (id: string) => ctx.dataSource.getRepository(JobEntity).findOneByOrFail({ id });
 const reloadCv = (id: string) => ctx.dataSource.getRepository(CvEntity).findOneByOrFail({ id });
 
-async function waitFor(condition: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+/** Handlers whose generate_cv runs `work` and completes; apply_answer is never expected. */
+function recordingHandlers(work: (job: ClaimedJob) => void | Promise<void>): JobHandlers {
+  return {
+    generate_cv: {
+      async run(job, jobCtx) {
+        await work(job);
+        await jobCtx.complete(async () => {});
+      },
+      async onFailed() {},
+    },
+    apply_answer: {
+      run: () => Promise.reject(new Error('unexpected')),
+      async onFailed() {},
+    },
+  };
+}
+
+async function waitFor(
+  condition: () => boolean | Promise<boolean>,
+  timeoutMs = 5_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!(await condition())) {
     if (Date.now() > deadline) throw new Error('Timed out waiting for condition');
@@ -158,11 +178,9 @@ describe('leases', () => {
     );
     const worker = createTestWorker(ctx.dataSource);
     expect(await worker.runOnce()).toBe(true);
-    expect(await reloadJob(job.id)).toMatchObject({
-      status: 'succeeded',
-      attempts: 2,
-      lockedBy: worker.workerId,
-    });
+    const reclaimed = await reloadJob(job.id);
+    expect(reclaimed).toMatchObject({ status: 'succeeded', attempts: 2 });
+    expect(reclaimed.lockedBy?.startsWith(`${worker.workerId}:`)).toBe(true);
     expect((await reloadCv(cv.id)).status).toBe('ready');
   });
 
@@ -227,16 +245,86 @@ describe('leases', () => {
   });
 
   it('extends the lease while the handler runs', async () => {
-    const { job } = await queuedGeneration();
-    const llm = new FakeLlmClient({ delayMs: 300 });
-    const worker = createTestWorker(ctx.dataSource, { llm, leaseMs: 1_000, heartbeatMs: 50 });
-    const run = worker.runOnce();
-    await waitFor(async () => (await reloadJob(job.id)).status === 'running');
-    const first = (await reloadJob(job.id)).lockedUntil!.getTime();
-    await sleep(150);
-    const later = (await reloadJob(job.id)).lockedUntil;
-    await run;
-    expect(later!.getTime()).toBeGreaterThan(first);
+    await queuedGeneration();
+    const lockedUntil = async (id: string) => (await reloadJob(id)).lockedUntil!.getTime();
+    let first = 0;
+    let later = 0;
+    const handlers = recordingHandlers(async (job) => {
+      first = await lockedUntil(job.id);
+      await waitFor(async () => (await lockedUntil(job.id)) > first);
+      later = await lockedUntil(job.id);
+    });
+    await createTestWorker(ctx.dataSource, { handlers, leaseMs: 1_000, heartbeatMs: 50 }).runOnce();
+    expect(later).toBeGreaterThan(first);
+  });
+
+  it('keeps a stale attempt of the same process from overwriting the newer one', async () => {
+    const { cv, job } = await queuedGeneration();
+    let releaseNewer!: () => void;
+    const newerMayFinish = new Promise<void>((resolve) => (releaseNewer = resolve));
+    let calls = 0;
+    let newer: Promise<boolean> | undefined;
+    const llm = new FakeLlmClient();
+    const worker = createTestWorker(ctx.dataSource, { llm });
+    llm.overrides.draftCv = async (input) => {
+      calls++;
+      if (calls === 1) {
+        // The lease expired (e.g. a stalled event loop) and another loop reclaimed the job.
+        await ctx.dataSource.query(
+          `UPDATE jobs SET locked_until = now() - interval '1 second' WHERE id = $1`,
+          [job.id],
+        );
+        newer = worker.runOnce();
+        await waitFor(() => calls === 2);
+        throw new PermanentError('LLM_REFUSED', 'stale attempt');
+      }
+      await newerMayFinish;
+      return new FakeLlmClient().draftCv(input);
+    };
+
+    await worker.runOnce();
+    expect((await reloadCv(cv.id)).status).toBe('generating');
+    expect(await reloadJob(job.id)).toMatchObject({ status: 'running', attempts: 2 });
+
+    releaseNewer();
+    await newer;
+    expect(await reloadJob(job.id)).toMatchObject({ status: 'succeeded', attempts: 2 });
+    expect(await reloadCv(cv.id)).toMatchObject({ status: 'ready', version: 2 });
+  });
+
+  it('aborts an attempt that runs past its deadline and retries it later', async () => {
+    const { cv, job } = await queuedGeneration();
+    const llm = new FakeLlmClient({ delayMs: 30_000 });
+    const worker = createTestWorker(ctx.dataSource, {
+      llm,
+      attemptTimeoutMs: 50,
+      retryDelaysMs: [60_000],
+    });
+    await worker.runOnce();
+    const waiting = await reloadJob(job.id);
+    expect(waiting).toMatchObject({ status: 'queued', attempts: 1, lockedBy: null });
+    expect(waiting.lastError).toContain('AttemptTimeoutError');
+    expect((await reloadCv(cv.id)).status).toBe('generating');
+  });
+});
+
+describe('fairness', () => {
+  it('serves users with fewer live jobs first', async () => {
+    const heavy = await Promise.all([queuedGeneration(), queuedGeneration(), queuedGeneration()]);
+    userId = (await signedInUser(ctx.app)).user.id;
+    const light = await queuedGeneration();
+    await ctx.dataSource.query(
+      `UPDATE jobs SET run_at = now() - interval '1 minute' WHERE id <> $1`,
+      [light.job.id],
+    );
+    const order: string[] = [];
+    const worker = createTestWorker(ctx.dataSource, {
+      handlers: recordingHandlers((job) => void order.push(job.id)),
+    });
+    await worker.drain();
+    expect(order[0]).toBe(light.job.id);
+    expect(order).toHaveLength(4);
+    expect(order.slice(1)).toEqual(expect.arrayContaining(heavy.map(({ job }) => job.id)));
   });
 });
 
@@ -244,20 +332,11 @@ describe('concurrency', () => {
   it('never hands the same job to two workers', async () => {
     const jobs = await Promise.all(Array.from({ length: 8 }, () => queuedGeneration()));
     const processed: string[] = [];
-    const handlers: JobHandlers = {
-      generate_cv: {
-        async run(job, jobCtx) {
-          processed.push(job.id);
-          await sleep(15);
-          await jobCtx.complete(async () => {});
-        },
-        async onFailed() {},
-      },
-      apply_answer: {
-        run: () => Promise.reject(new Error('unexpected')),
-        async onFailed() {},
-      },
-    };
+    const handlers = recordingHandlers(async (job) => {
+      processed.push(job.id);
+      // Holds the first job until the other worker has claimed one, so both take part.
+      if (processed.length === 1) await waitFor(() => processed.length > 1);
+    });
     const a = createTestWorker(ctx.dataSource, { handlers, workerId: 'a' });
     const b = createTestWorker(ctx.dataSource, { handlers, workerId: 'b' });
     const [byA, byB] = await Promise.all([a.drain(), b.drain()]);

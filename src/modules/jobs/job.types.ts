@@ -15,13 +15,12 @@ export interface ClaimedJob {
 }
 
 /**
- * Proof of ownership. Every write a handler makes is conditional on the job still being
- * `running` and locked by this worker, so a worker whose lease was reclaimed cannot overwrite
- * the result of a newer attempt.
+ * Proof of ownership of one attempt. `lockedBy` is unique per claim, so every lease-guarded write
+ * fails once the job was reclaimed, even by another loop of the same process.
  */
 export interface Lease {
   jobId: string;
-  workerId: string;
+  lockedBy: string;
 }
 
 export interface JobContext {

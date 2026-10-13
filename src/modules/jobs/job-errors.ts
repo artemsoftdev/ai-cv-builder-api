@@ -62,6 +62,14 @@ export class LeaseLostError extends Error {
   }
 }
 
+/** Abort reason when an attempt runs past its deadline; retried like any transient error. */
+export class AttemptTimeoutError extends TransientError {
+  constructor(timeoutMs: number) {
+    super(`Attempt exceeded ${timeoutMs} ms`, 'LLM_UNAVAILABLE');
+    this.name = 'AttemptTimeoutError';
+  }
+}
+
 /** Abort reason used when the worker shuts down while a handler is still running. */
 export class WorkerStoppingError extends Error {
   constructor() {

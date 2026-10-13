@@ -4,6 +4,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { DataSource, EntityManager } from 'typeorm';
 import type { Logger } from '../../logger.js';
 import {
+  AttemptTimeoutError,
   describeError,
   LeaseLostError,
   PermanentError,
@@ -25,6 +26,8 @@ export interface WorkerOptions {
   heartbeatMs?: number;
   /** stop() waits this long for running jobs before interrupting them. */
   shutdownGraceMs?: number;
+  /** An attempt still running after this is aborted and retried. */
+  attemptTimeoutMs?: number;
   /** Backoff table, see retry-policy.ts. Tests pass zeros. */
   retryDelaysMs?: readonly number[];
 }
@@ -41,6 +44,7 @@ const CLAIM_ERROR_BACKOFF_MS = 5_000;
 const INTERRUPT_SETTLE_MS = 3_000;
 
 interface RunningJob {
+  jobId: string;
   controller: AbortController;
   done: Promise<void>;
 }
@@ -57,6 +61,7 @@ export class JobWorker {
   private readonly leaseMs: number;
   private readonly heartbeatMs: number;
   private readonly shutdownGraceMs: number;
+  private readonly attemptTimeoutMs: number;
   private readonly retryDelaysMs: readonly number[];
   private readonly running = new Map<string, RunningJob>();
   private readonly idle = new AbortController();
@@ -73,6 +78,7 @@ export class JobWorker {
     this.leaseMs = options.leaseMs ?? 120_000;
     this.heartbeatMs = options.heartbeatMs ?? 30_000;
     this.shutdownGraceMs = options.shutdownGraceMs ?? 25_000;
+    this.attemptTimeoutMs = options.attemptTimeoutMs ?? 15 * 60_000;
     this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
   }
 
@@ -96,9 +102,10 @@ export class JobWorker {
 
   /** Claims and processes at most one job; false when none was due. Used by tests. */
   async runOnce(): Promise<boolean> {
-    const job = await this.queue.claim(this.workerId, this.leaseMs);
+    const lease = { lockedBy: `${this.workerId}:${randomUUID()}` };
+    const job = await this.queue.claim(lease.lockedBy, this.leaseMs);
     if (!job) return false;
-    await this.process(job);
+    await this.process(job, { jobId: job.id, ...lease });
     return true;
   }
 
@@ -116,7 +123,7 @@ export class JobWorker {
     if (await finishesWithin(settled(), this.shutdownGraceMs)) return;
 
     this.deps.logger.warn(
-      { jobIds: [...this.running.keys()] },
+      { jobIds: [...this.running.values()].map((job) => job.jobId) },
       'Interrupting running jobs for shutdown',
     );
     for (const job of this.running.values()) job.controller.abort(new WorkerStoppingError());
@@ -143,20 +150,19 @@ export class JobWorker {
     await sleep(ms, undefined, { signal: this.idle.signal }).catch(() => undefined);
   }
 
-  private async process(job: ClaimedJob): Promise<void> {
+  private async process(job: ClaimedJob, lease: Lease): Promise<void> {
     const controller = new AbortController();
-    const done = this.execute(job, controller);
-    this.running.set(job.id, { controller, done });
+    const done = this.execute(job, lease, controller);
+    this.running.set(lease.lockedBy, { jobId: job.id, controller, done });
     try {
       await done;
     } finally {
-      this.running.delete(job.id);
+      this.running.delete(lease.lockedBy);
     }
   }
 
-  /** Runs the handler and records the outcome. Never throws. */
-  private async execute(job: ClaimedJob, controller: AbortController): Promise<void> {
-    const lease: Lease = { jobId: job.id, workerId: this.workerId };
+  /** Never throws: every outcome is recorded or left to the lease expiry. */
+  private async execute(job: ClaimedJob, lease: Lease, controller: AbortController): Promise<void> {
     const log = this.deps.logger.child({
       jobId: job.id,
       jobType: job.type,
@@ -165,6 +171,10 @@ export class JobWorker {
     });
     const startedAt = Date.now();
     const heartbeat = setInterval(() => void this.beat(lease, controller, log), this.heartbeatMs);
+    const deadline = setTimeout(
+      () => controller.abort(new AttemptTimeoutError(this.attemptTimeoutMs)),
+      this.attemptTimeoutMs,
+    );
     try {
       if (job.attempts > job.maxAttempts) {
         // Reclaimed after its last attempt died with the worker (crash or hang): give up.
@@ -188,6 +198,7 @@ export class JobWorker {
       await this.handleError(job, lease, err, controller.signal, log);
     } finally {
       clearInterval(heartbeat);
+      clearTimeout(deadline);
     }
   }
 
@@ -237,22 +248,23 @@ export class JobWorker {
         return;
       }
 
-      const lastError = describeError(err);
-      if (!(err instanceof PermanentError) && job.attempts < job.maxAttempts) {
+      const failure = abortReason instanceof AttemptTimeoutError ? abortReason : err;
+      const lastError = describeError(failure);
+      if (!(failure instanceof PermanentError) && job.attempts < job.maxAttempts) {
         const delayMs = retryDelayMs(job.attempts, this.retryDelaysMs);
         const rescheduled = await this.queue.reschedule(lease, delayMs, lastError);
         log.warn({ err, delayMs, rescheduled }, 'Job attempt failed, will retry');
         return;
       }
 
-      const failure = toJobFailure(err);
+      const outcome = toJobFailure(failure);
       const recorded = await this.deps.dataSource.transaction(async (manager) => {
         if (!(await this.queue.markFailed(manager, lease, lastError))) return false;
-        await this.deps.handlers[job.type].onFailed(manager, job, failure);
+        await this.deps.handlers[job.type].onFailed(manager, job, outcome);
         return true;
       });
-      const level = failure.code === 'INTERNAL' ? 'error' : 'warn';
-      log[level]({ err, code: failure.code, recorded }, 'Job failed');
+      const level = outcome.code === 'INTERNAL' ? 'error' : 'warn';
+      log[level]({ err, code: outcome.code, recorded }, 'Job failed');
     } catch (writeErr) {
       // The outcome could not be stored (e.g. database down). Nothing is lost: the lease
       // expires and the job is reclaimed.

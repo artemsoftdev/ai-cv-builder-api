@@ -30,14 +30,22 @@ export function isCvBusyError(err: unknown): boolean {
   return isUniqueViolation(err, ONE_ACTIVE_JOB_PER_CV_INDEX);
 }
 
+export async function countLiveJobs(manager: EntityManager): Promise<number> {
+  const { rows } = await runSql<{ count: number }>(
+    manager,
+    `SELECT count(*)::int AS count FROM jobs WHERE status IN ('queued', 'running')`,
+  );
+  return rows[0]?.count ?? 0;
+}
+
 /**
  * SQL condition "the job is still running and leased to this worker", for statements that
  * write on behalf of a job. Pass the placeholders that hold the job id and worker id.
  */
-export function leaseHeldSql(jobIdParam: string, workerIdParam: string): string {
+export function leaseHeldSql(jobIdParam: string, lockedByParam: string): string {
   return `EXISTS (
     SELECT 1 FROM jobs
-     WHERE jobs.id = ${jobIdParam} AND jobs.locked_by = ${workerIdParam} AND jobs.status = 'running'
+     WHERE jobs.id = ${jobIdParam} AND jobs.locked_by = ${lockedByParam} AND jobs.status = 'running'
   )`;
 }
 
@@ -55,11 +63,11 @@ export class JobQueue {
   constructor(private readonly dataSource: DataSource) {}
 
   /**
-   * Atomically takes the oldest runnable job: a queued job that is due, or a running job whose
-   * lease expired (its worker died). SKIP LOCKED lets concurrent workers claim different jobs
-   * without blocking each other; the attempt counter is incremented by the claim itself.
+   * Atomically takes a runnable job: queued and due, or running with an expired lease. Users
+   * with fewer live jobs go first, so one user's backlog cannot starve everyone else; within a
+   * user the oldest job wins. The claim increments the attempt counter.
    */
-  async claim(workerId: string, leaseMs: number): Promise<ClaimedJob | null> {
+  async claim(lockedBy: string, leaseMs: number): Promise<ClaimedJob | null> {
     const { rows } = await runSql<ClaimedJobRow>(
       this.dataSource.manager,
       `UPDATE jobs
@@ -69,16 +77,25 @@ export class JobQueue {
               locked_until = now() + ($2::int * interval '1 millisecond'),
               updated_at = now()
         WHERE id = (
-                SELECT id FROM jobs
-                 WHERE (status = 'queued' AND run_at <= now())
-                    OR (status = 'running' AND locked_until < now())
-                 ORDER BY run_at
-                 FOR UPDATE SKIP LOCKED
+                WITH live AS (
+                  SELECT c.user_id, count(*) AS n
+                    FROM jobs lj JOIN cvs c ON c.id = lj.cv_id
+                   WHERE lj.status IN ('queued', 'running')
+                   GROUP BY c.user_id
+                )
+                SELECT j.id
+                  FROM jobs j
+                  JOIN cvs c ON c.id = j.cv_id
+                  JOIN live ON live.user_id = c.user_id
+                 WHERE (j.status = 'queued' AND j.run_at <= now())
+                    OR (j.status = 'running' AND j.locked_until < now())
+                 ORDER BY live.n, j.run_at
+                 FOR UPDATE OF j SKIP LOCKED
                  LIMIT 1
               )
         RETURNING id, type, cv_id AS "cvId", question_id AS "questionId", attempts,
                   max_attempts AS "maxAttempts"`,
-      [workerId, leaseMs],
+      [lockedBy, leaseMs],
     );
     return rows[0] ?? null;
   }
@@ -90,7 +107,7 @@ export class JobQueue {
       `UPDATE jobs
           SET locked_until = now() + ($3::int * interval '1 millisecond'), updated_at = now()
         WHERE id = $1 AND locked_by = $2 AND status = 'running'`,
-      [lease.jobId, lease.workerId, leaseMs],
+      [lease.jobId, lease.lockedBy, leaseMs],
     );
     return affected === 1;
   }
@@ -117,7 +134,7 @@ export class JobQueue {
               last_error = $4,
               updated_at = now()
         WHERE id = $1 AND locked_by = $2 AND status = 'running'`,
-      [lease.jobId, lease.workerId, Math.max(0, Math.round(delayMs)), lastError],
+      [lease.jobId, lease.lockedBy, Math.max(0, Math.round(delayMs)), lastError],
     );
     return affected === 1;
   }
@@ -137,7 +154,7 @@ export class JobQueue {
               locked_until = NULL,
               updated_at = now()
         WHERE id = $1 AND locked_by = $2 AND status = 'running'`,
-      [lease.jobId, lease.workerId],
+      [lease.jobId, lease.lockedBy],
     );
     return affected === 1;
   }
@@ -158,7 +175,7 @@ export class JobQueue {
               finished_at = now(),
               updated_at = now()
         WHERE id = $1 AND locked_by = $2 AND status = 'running'`,
-      [lease.jobId, lease.workerId, status, lastError],
+      [lease.jobId, lease.lockedBy, status, lastError],
     );
     return affected === 1;
   }

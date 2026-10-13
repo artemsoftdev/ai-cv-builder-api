@@ -260,6 +260,24 @@ describe('generation budget', () => {
   });
 });
 
+describe('deployment-wide job cap', () => {
+  const capped = useTestApp({ maxLiveJobs: 1 });
+
+  it('refuses new work while the queue is full, for every user', async () => {
+    const first = await signedInUser(capped.app);
+    const second = await signedInUser(capped.app);
+    expect((await postText(first.agent, SOURCE)).status).toBe(202);
+
+    const refused = await postText(second.agent, SOURCE);
+    expect(refused.status).toBe(429);
+    expect(refused.body.error).toEqual({ code: 'RATE_LIMITED', message: expect.any(String) });
+    expect(refused.headers['retry-after']).toBe('60');
+
+    await createTestWorker(capped.dataSource).drain();
+    expect((await postText(second.agent, SOURCE)).status).toBe(202);
+  });
+});
+
 describe('POST /api/cvs with a PDF', () => {
   it('extracts the text layer, keeps a safe file name and appends hidden link targets', async () => {
     const pdf = await makePdf([SOURCE.split('\n')], {

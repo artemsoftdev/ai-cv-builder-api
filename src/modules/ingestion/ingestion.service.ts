@@ -5,7 +5,11 @@ import { CvRepository, type NewCv } from '../cvs/cv.repository.js';
 import type { CvService } from '../cvs/cv.service.js';
 import type { CvDto } from '../cvs/cv.types.js';
 import { enqueueJob } from '../jobs/job-queue.js';
-import { assertGenerationCapacity } from './generation-capacity.js';
+import {
+  assertGenerationCapacity,
+  assertQueueCapacity,
+  type CapacityLimits,
+} from './generation-capacity.js';
 import { extractPdfText, isPdf, PdfUnreadableError } from './pdf-text.js';
 import { countNonWhitespace, normalizeSourceText, SOURCE_LIMITS } from './source-text.js';
 import { safeFilename } from './upload.js';
@@ -30,14 +34,16 @@ export class IngestionService {
     private readonly deps: {
       dataSource: DataSource;
       cvService: CvService;
-      maxActiveGenerations: number;
+      capacity: CapacityLimits;
     },
   ) {}
 
   async createCv(userId: string, input: CreateCvInput, log: Logger): Promise<CvDto> {
     const source = await this.prepareSource(input, log);
     const cvId = await this.deps.dataSource.transaction(async (manager) => {
-      await assertGenerationCapacity(manager, userId, this.deps.maxActiveGenerations);
+      const { maxActiveGenerations, maxLiveJobs } = this.deps.capacity;
+      await assertGenerationCapacity(manager, userId, maxActiveGenerations);
+      await assertQueueCapacity(manager, maxLiveJobs);
       const cv = await new CvRepository(manager).create({
         userId,
         title: input.targetRole,

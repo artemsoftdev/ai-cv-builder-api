@@ -10,7 +10,11 @@ import {
   type QuestionSection,
   type QuestionStatus,
 } from '../cvs/cv.types.js';
-import { assertGenerationCapacity } from '../ingestion/generation-capacity.js';
+import {
+  assertGenerationCapacity,
+  assertQueueCapacity,
+  type CapacityLimits,
+} from '../ingestion/generation-capacity.js';
 import { enqueueJob, isCvBusyError } from '../jobs/job-queue.js';
 
 function entryExists(content: CvContent, section: QuestionSection, itemId: string): boolean {
@@ -28,7 +32,7 @@ export class GenerationService {
     private readonly deps: {
       dataSource: DataSource;
       cvService: CvService;
-      maxActiveGenerations: number;
+      capacity: CapacityLimits;
     },
   ) {}
 
@@ -39,7 +43,8 @@ export class GenerationService {
         const cv = await new CvRepository(manager).findOwned(userId, cvId);
         if (!cv) throw notFound('CV');
         if (cv.status !== 'failed') throw retryNotAllowed(cv.status);
-        await assertGenerationCapacity(manager, userId, this.deps.maxActiveGenerations);
+        await assertGenerationCapacity(manager, userId, this.deps.capacity.maxActiveGenerations);
+        await assertQueueCapacity(manager, this.deps.capacity.maxLiveJobs);
         // Re-checked in the UPDATE: a concurrent retry waited on the user lock above.
         const { affected } = await runSql(
           manager,
@@ -89,6 +94,7 @@ export class GenerationService {
             'The CV entry this question is about has been removed. Dismiss the question instead.',
           );
         }
+        await assertQueueCapacity(manager, this.deps.capacity.maxLiveJobs);
         const { affected } = await runSql(
           manager,
           `UPDATE cv_questions

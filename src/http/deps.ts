@@ -21,6 +21,8 @@ export interface AppOptions {
   answerRateLimit?: RateLimitOptions;
   /** CVs a user may have generating at the same time. */
   maxActiveGenerations?: number;
+  /** Queued + running jobs of all users before new work is refused. */
+  maxLiveJobs?: number;
   pdfRateLimit?: RateLimitOptions;
 }
 
